@@ -26,7 +26,10 @@
 // PSRAM's data lines: pressing PWR with PSRAM running crashes the chip. That
 // revision (BOARD_WS_S3_V1) is built with PSRAM off so those pins are free.
 //
-// The UI uses the whole 240x280 panel; layouts derive from BOARD_UI_W/H.
+// The UI is landscape by default and uses the whole panel (280x240 after
+// rotation); layouts derive from BOARD_UI_W/H. BOARD_HOME_ROTATION is 1 or 3
+// depending on which short edge should be up (flip it if the picture is
+// upside-down).
 
 #include <Arduino.h>
 #include <Wire.h>
@@ -34,10 +37,11 @@
 #include <esp_mac.h>
 
 #define BOARD_LED_PIN -1
-#define BOARD_UI_W 240
-#define BOARD_UI_H 280
-#define BOARD_BUDDY_SCALE 3
-#define BOARD_CLOCK_BUDDY_SCALE 2
+#define BOARD_UI_W 280
+#define BOARD_UI_H 240
+#define BOARD_HOME_ROTATION 1
+#define BOARD_BUDDY_SCALE 2
+#define BOARD_CLOCK_BUDDY_SCALE 1
 #define BOARD_MSG_BUDDY_SCALE 1
 
 // M5StickCPlus colour names used by the UI.
@@ -64,7 +68,6 @@ constexpr int PIN_BUZZER = -1;
 constexpr int PIN_TP_RST = -1;
 #endif
 constexpr int PANEL_W = 240, PANEL_H = 280, PANEL_RAM_Y = 20;
-constexpr int UI_W = BOARD_UI_W, UI_H = BOARD_UI_H;
 }
 
 // UI code passes both the LCD and sprites around as TFT_eSPI*.
@@ -121,9 +124,8 @@ class WsLcd : public lgfx::LGFX_Device {
 
   void begin() {
     init();
-    fillScreen(TFT_BLACK);          // clear the border outside the UI window
-    setWindow(ws169::UI_W, ws169::UI_H);
-    setRotation(0);
+    setRotation(BOARD_HOME_ROTATION);
+    fillScreen(TFT_BLACK);
   }
 };
 

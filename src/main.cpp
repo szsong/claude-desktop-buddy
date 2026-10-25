@@ -25,7 +25,7 @@ const int W = BOARD_UI_W, H = BOARD_UI_H;
 // Text columns across the screen at size 1 (6px glyphs, 4px margins):
 // 21 on the M5StickC Plus, 38 on 240px-wide boards.
 const int COLS = (W - 8) / 6;
-const int ROW_MAX = 40;          // wrap buffer width, >= COLS + 1
+const int ROW_MAX = 48;          // wrap buffer width, >= COLS + 1
 // Transcript and approval text: size 2 on 240px-wide screens so it reads
 // at arm's length; MCOLS is the matching column count (21 / 19).
 const int TS = W >= 200 ? 2 : 1;
@@ -371,6 +371,7 @@ static void clockRefreshRtc() {
 }
 
 static void clockUpdateOrient() {
+  if (W > H) { clockOrient = 0; return; }   // already landscape: one clock layout
   float ax, ay, az;
   M5.Imu.getAccelData(&ax, &ay, &az);
   uint8_t lock = settings().clockRot;
@@ -432,10 +433,19 @@ static void drawClock() {
     const int top = BOARD_CLOCK_BUDDY_SCALE > 1 ? 140 : 90;
     spr.fillRect(0, top, W, H - top, p.bg);
     spr.setTextDatum(MC_DATUM);
-    spr.setTextSize(W >= 200 ? 6 : 4); spr.setTextColor(p.text, p.bg);
-    spr.drawString(hm, CX, H - 100);
-    spr.setTextSize(2); spr.setTextColor(p.textDim, p.bg); spr.drawString(ss, CX, H - 55);
-    spr.setTextSize(W >= 200 ? 2 : 1);                      spr.drawString(dl, CX, H - 30);
+    if (W > H) {
+      // Landscape: time big under the pet, seconds and date on one row.
+      spr.setTextSize(6); spr.setTextColor(p.text, p.bg);
+      spr.drawString(hm, CX, 142);
+      spr.setTextSize(2); spr.setTextColor(p.textDim, p.bg);
+      spr.drawString(ss, CX - 60, 205);
+      spr.drawString(dl, CX + 40, 205);
+    } else {
+      spr.setTextSize(W >= 200 ? 6 : 4); spr.setTextColor(p.text, p.bg);
+      spr.drawString(hm, CX, H - 100);
+      spr.setTextSize(2); spr.setTextColor(p.textDim, p.bg); spr.drawString(ss, CX, H - 55);
+      spr.setTextSize(W >= 200 ? 2 : 1);                      spr.drawString(dl, CX, H - 30);
+    }
     spr.setTextDatum(TL_DATUM);
     return;
   }
@@ -486,7 +496,7 @@ static void drawClock() {
       characterRenderTo(&M5.Lcd, BUDDY_X_CENTER - 10, 45);
     }
   }
-  M5.Lcd.setRotation(0);
+  M5.Lcd.setRotation(BOARD_HOME_ROTATION);
 }
 
 PersonaState derive(const TamaState& s) {
@@ -970,7 +980,7 @@ void drawHUD() {
 
 void setup() {
   M5.begin();
-  M5.Lcd.setRotation(0);
+  M5.Lcd.setRotation(BOARD_HOME_ROTATION);
   M5.Imu.Init();
   {
     float ax, ay, az;

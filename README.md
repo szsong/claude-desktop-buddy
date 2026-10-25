@@ -34,7 +34,8 @@ ESP32-C6-Touch-LCD-1.69 (and the non-touch ESP32-C6-LCD-1.69). Board
 support lives in `src/board/waveshare_lcd_169.h`, which maps the M5StickC
 Plus API onto the board's ST7789V2 panel (via LovyanGFX), QMI8658 IMU,
 PCF85063 RTC, CST816 touch (a tap acts as B), buzzer (S3 only) and its two
-keys. The UI uses the full 240x280 screen.
+keys. The UI is landscape (280x240) by default; if it comes up upside-down,
+change `BOARD_HOME_ROTATION` between 1 and 3 in the board header.
 
 ```bash
 pio run -e waveshare-s3-lcd-169 -t upload      # ESP32-S3 board, V2.1
