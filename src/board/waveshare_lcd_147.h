@@ -218,9 +218,17 @@ class WsRtc {
     _base = mktime(&t);   // TZ is UTC, so this round-trips with gmtime_r _baseMs = millis(); _set = true;
   }
  public:
-  void GetTime(RTC_TimeTypeDef* t) { tm c = cur(); *t = { (uint8_t)c.tm_hour, (uint8_t)c.tm_min, (uint8_t)c.tm_sec }; }
+  void GetTime(RTC_TimeTypeDef* t) { tm c = cur();
+#if defined(BOARD_DEBUG_LOOP)
+    static uint32_t lastDbg = 0;
+    if (millis() - lastDbg > 2000) { lastDbg = millis(); Serial.printf("[rtc] get base=%ld baseMs=%lu set=%d now=%lu\n", (long)_base, (unsigned long)_baseMs, _set, (unsigned long)millis()); }
+#endif
+    *t = { (uint8_t)c.tm_hour, (uint8_t)c.tm_min, (uint8_t)c.tm_sec }; }
   void GetDate(RTC_DateTypeDef* d) { tm c = cur(); *d = { (uint8_t)c.tm_wday, (uint8_t)(c.tm_mon + 1), (uint8_t)c.tm_mday, (uint16_t)(c.tm_year + 1900) }; }
   void SetTime(RTC_TimeTypeDef* t) {
+#if defined(BOARD_DEBUG_LOOP)
+    Serial.printf("[rtc] set %02u:%02u:%02u at %lu ms\n", t->Hours, t->Minutes, t->Seconds, (unsigned long)millis());
+#endif
     tm c = cur(); store(c.tm_year + 1900, c.tm_mon + 1, c.tm_mday, t->Hours, t->Minutes, t->Seconds);
   }
   void SetDate(RTC_DateTypeDef* d) {
