@@ -215,7 +215,8 @@ class WsRtc {
   void store(int y, int mo, int d, int h, int mi, int s) {
     tm t = {}; t.tm_year = y - 1900; t.tm_mon = mo - 1; t.tm_mday = d;
     t.tm_hour = h; t.tm_min = mi; t.tm_sec = s;
-    _base = mktime(&t);   // TZ is UTC, so this round-trips with gmtime_r _baseMs = millis(); _set = true;
+    _base = mktime(&t);   // TZ is UTC, so this round-trips with gmtime_r
+    _baseMs = millis(); _set = true;
   }
  public:
   void GetTime(RTC_TimeTypeDef* t) { tm c = cur();
