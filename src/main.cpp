@@ -1,4 +1,4 @@
-#include <M5StickCPlus.h>
+#include "hw.h"
 #include <LittleFS.h>
 #include <stdarg.h>
 #include "ble_bridge.h"
@@ -23,7 +23,7 @@ static void startBt() {
 const int W = 135, H = 240;
 const int CX = W / 2;
 const int CY_BASE = 120;
-const int LED_PIN = 10;          // red LED, active-low
+const int LED_PIN = BOARD_LED_PIN; // active-low; -1 = board has no LED
 
 // Colors used across multiple UI surfaces
 const uint16_t HOT   = 0xFA20;   // red-orange: warnings, impatience, deny
@@ -941,8 +941,10 @@ void setup() {
   M5.Imu.Init();
   M5.Beep.begin();
   startBt();
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, HIGH);   // off
+  if (LED_PIN >= 0) {
+    pinMode(LED_PIN, OUTPUT);
+    digitalWrite(LED_PIN, HIGH);   // off
+  }
   applyBrightness();
   lastInteractMs = millis();
   statsLoad();
@@ -1002,7 +1004,8 @@ void loop() {
   if ((int32_t)(now - oneShotUntil) >= 0) activeState = baseState;
 
   // LED: pulse on attention, otherwise off
-  if (activeState == P_ATTENTION && settings().led) {
+  if (LED_PIN < 0) {
+  } else if (activeState == P_ATTENTION && settings().led) {
     digitalWrite(LED_PIN, (now / 400) % 2 ? LOW : HIGH);
   } else {
     digitalWrite(LED_PIN, HIGH);
