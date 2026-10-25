@@ -1185,8 +1185,22 @@ void loop() {
 
   static uint32_t lastPasskey = 0;
   uint32_t pk = blePasskey();
-  if (pk && !lastPasskey) { wake(); beep(1800, 60); }
+  if (pk && !lastPasskey) {
+    wake(); beep(1800, 60);
+    menuOpen = settingsOpen = resetOpen = false;   // never hide the pairing code
+  }
   lastPasskey = pk;
+
+  // Closing a menu leaves its panel in the sprite: the ASCII buddy only
+  // repaints its own strip, so wipe the frame once when an overlay goes away.
+  static bool hadOverlay = false;
+  bool overlay = menuOpen || settingsOpen || resetOpen;
+  if (hadOverlay && !overlay) {
+    spr.fillSprite(characterPalette().bg);
+    characterInvalidate();
+    if (buddyMode) buddyInvalidate();
+  }
+  hadOverlay = overlay;
 
   if (napping || screenOff || landscapeClock) {
     // skip sprite render — face-down, powered off, or landscape clock
