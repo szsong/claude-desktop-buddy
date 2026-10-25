@@ -26,6 +26,10 @@ const int W = BOARD_UI_W, H = BOARD_UI_H;
 // 21 on the M5StickC Plus, 38 on 240px-wide boards.
 const int COLS = (W - 8) / 6;
 const int ROW_MAX = 40;          // wrap buffer width, >= COLS + 1
+// Transcript and approval text: size 2 on 240px-wide screens so it reads
+// at arm's length; MCOLS is the matching column count (21 / 19).
+const int TS = W >= 200 ? 2 : 1;
+const int MCOLS = (W - 8) / (6 * TS);
 const int CX = W / 2;
 const int CY_BASE = 120;
 const int LED_PIN = BOARD_LED_PIN; // active-low; -1 = board has no LED
@@ -734,48 +738,52 @@ static uint8_t wrapInto(const char* in, char out[][ROW_MAX], uint8_t maxRows, ui
 
 static void drawApproval() {
   const Palette& p = characterPalette();
-  const int AREA = 78;
-  spr.fillRect(0, H - AREA, W, AREA, p.bg);
-  spr.drawFastHLine(0, H - AREA, W, p.textDim);
+  // Layout in units of the message text height (8px at size 1).
+  const int AREA = TS > 1 ? 120 : 78;
+  const int y0 = H - AREA;
+  spr.fillRect(0, y0, W, AREA, p.bg);
+  spr.drawFastHLine(0, y0, W, p.textDim);
 
-  spr.setTextSize(1);
+  spr.setTextSize(TS);
   spr.setTextColor(p.textDim, p.bg);
-  spr.setCursor(4, H - AREA + 4);
+  spr.setCursor(4, y0 + 4);
   uint32_t waited = (millis() - promptArrivedMs) / 1000;
   if (waited >= 10) spr.setTextColor(HOT, p.bg);
   spr.printf("approve? %lus", (unsigned long)waited);
 
-  // Size 2 only if it fits one line (12px glyphs)
+  // Double size only if it fits one line
   int toolLen = strlen(tama.promptTool);
-  bool bigTool = toolLen <= (W - 8) / 12;
+  bool bigTool = toolLen <= (W - 8) / (12 * TS);
   spr.setTextColor(p.text, p.bg);
-  spr.setTextSize(bigTool ? 2 : 1);
-  spr.setCursor(4, H - AREA + (bigTool ? 14 : 18));
+  spr.setTextSize(bigTool ? 2 * TS : TS);
+  spr.setCursor(4, y0 + 4 + (bigTool ? 10 : 14) * TS);
   spr.print(tama.promptTool);
-  spr.setTextSize(1);
+  spr.setTextSize(TS);
 
-  // Hint wraps at COLS chars to two lines under the tool name
+  // Hint wraps at MCOLS chars to two lines under the tool name
   spr.setTextColor(p.textDim, p.bg);
   int hlen = strlen(tama.promptHint);
-  spr.setCursor(4, H - AREA + 34);
-  spr.printf("%.*s", COLS, tama.promptHint);
-  if (hlen > COLS) {
-    spr.setCursor(4, H - AREA + 42);
-    spr.printf("%.*s", COLS, tama.promptHint + COLS);
+  spr.setCursor(4, y0 + 4 + 30 * TS);
+  spr.printf("%.*s", MCOLS, tama.promptHint);
+  if (hlen > MCOLS) {
+    spr.setCursor(4, y0 + 4 + 38 * TS);
+    spr.printf("%.*s", MCOLS, tama.promptHint + MCOLS);
   }
 
+  const int fy = H - 4 - 8 * TS;
   if (responseSent) {
     spr.setTextColor(p.textDim, p.bg);
-    spr.setCursor(4, H - 12);
+    spr.setCursor(4, fy);
     spr.print("sent...");
   } else {
     spr.setTextColor(GREEN, p.bg);
-    spr.setCursor(4, H - 12);
+    spr.setCursor(4, fy);
     spr.print("A: approve");
     spr.setTextColor(HOT, p.bg);
-    spr.setCursor(W - 48, H - 12);
+    spr.setCursor(W - 4 - 7 * 6 * TS, fy);
     spr.print("B: deny");
   }
+  spr.setTextSize(1);
 }
 
 static void tinyHeart(int x, int y, bool filled, uint16_t col) {
@@ -901,12 +909,12 @@ void drawPet() {
 void drawHUD() {
   if (tama.promptId[0]) { drawApproval(); return; }
   const Palette& p = characterPalette();
-  // Transcript rows: 3 on the M5StickC Plus, more on taller screens.
-  const int LH = 8, WIDTH = COLS;
-  const int SHOW = H >= 280 ? 6 : 3;
+  // Transcript rows: 3 on the M5StickC Plus, 4 (at double size) on taller screens.
+  const int LH = 8 * TS, WIDTH = MCOLS;
+  const int SHOW = H >= 280 ? 4 : 3;
   const int AREA = SHOW * LH + 4;
   spr.fillRect(0, H - AREA, W, AREA, p.bg);
-  spr.setTextSize(1);
+  spr.setTextSize(TS);
 
   if (tama.lineGen != lastLineGen) { msgScroll = 0; lastLineGen = tama.lineGen; wake(); }
 
@@ -943,9 +951,10 @@ void drawHUD() {
   }
   if (msgScroll > 0) {
     spr.setTextColor(p.body, p.bg);
-    spr.setCursor(W - 18, H - LH - 2);
+    spr.setCursor(W - 4 - 3 * 6 * TS, H - LH - 2);
     spr.printf("-%u", msgScroll);
   }
+  spr.setTextSize(1);
 }
 
 void setup() {
