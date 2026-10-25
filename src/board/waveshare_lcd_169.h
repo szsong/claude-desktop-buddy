@@ -26,9 +26,7 @@
 // PSRAM's data lines: pressing PWR with PSRAM running crashes the chip. That
 // revision (BOARD_WS_S3_V1) is built with PSRAM off so those pins are free.
 //
-// The UI was laid out for the M5StickC Plus's 135x240 panel. For now the
-// panel window is shrunk to a centred 135x240 region so every screen
-// renders unchanged; using the full 240x280 comes later.
+// The UI uses the whole 240x280 panel; layouts derive from BOARD_UI_W/H.
 
 #include <Arduino.h>
 #include <Wire.h>
@@ -36,6 +34,9 @@
 #include <esp_mac.h>
 
 #define BOARD_LED_PIN -1
+#define BOARD_UI_W 240
+#define BOARD_UI_H 280
+#define BOARD_BUDDY_SCALE 3
 
 // M5StickCPlus colour names used by the UI.
 #define RED   0xF800
@@ -61,7 +62,7 @@ constexpr int PIN_BUZZER = -1;
 constexpr int PIN_TP_RST = -1;
 #endif
 constexpr int PANEL_W = 240, PANEL_H = 280, PANEL_RAM_Y = 20;
-constexpr int UI_W = 135, UI_H = 240;
+constexpr int UI_W = BOARD_UI_W, UI_H = BOARD_UI_H;
 }
 
 // UI code passes both the LCD and sprites around as TFT_eSPI*.

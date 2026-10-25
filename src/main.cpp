@@ -4,6 +4,7 @@
 #include "ble_bridge.h"
 #include "data.h"
 #include "buddy.h"
+#include "buddy_common.h"
 
 TFT_eSprite spr = TFT_eSprite(&M5.Lcd);
 
@@ -20,7 +21,11 @@ static void startBt() {
 
 #include "character.h"
 #include "stats.h"
-const int W = 135, H = 240;
+const int W = BOARD_UI_W, H = BOARD_UI_H;
+// Text columns across the screen at size 1 (6px glyphs, 4px margins):
+// 21 on the M5StickC Plus, 38 on 240px-wide boards.
+const int COLS = (W - 8) / 6;
+const int ROW_MAX = 40;          // wrap buffer width, >= COLS + 1
 const int CX = W / 2;
 const int CY_BASE = 120;
 const int LED_PIN = BOARD_LED_PIN; // active-low; -1 = board has no LED
@@ -422,9 +427,10 @@ static void drawClock() {
     // via peek mode. Clearing from 90 leaves both untouched.
     spr.fillRect(0, 90, W, H - 90, p.bg);
     spr.setTextDatum(MC_DATUM);
-    spr.setTextSize(4); spr.setTextColor(p.text, p.bg);    spr.drawString(hm, CX, 140);
-    spr.setTextSize(2); spr.setTextColor(p.textDim, p.bg); spr.drawString(ss, CX, 175);
-    spr.setTextSize(1);                                     spr.drawString(dl, CX, 200);
+    spr.setTextSize(W >= 200 ? 6 : 4); spr.setTextColor(p.text, p.bg);
+    spr.drawString(hm, CX, H - 100);
+    spr.setTextSize(2); spr.setTextColor(p.textDim, p.bg); spr.drawString(ss, CX, H - 55);
+    spr.setTextSize(W >= 200 ? 2 : 1);                      spr.drawString(dl, CX, H - 30);
     spr.setTextDatum(TL_DATUM);
     return;
   }
@@ -444,9 +450,11 @@ static void drawClock() {
     char wdl[12]; snprintf(wdl, sizeof(wdl), "%s %s %02u", DOW[clockDow()], MON[mi], _clkDt.Date);
     char ssl[3]; snprintf(ssl, sizeof(ssl), "%02u", _clkTm.Seconds);
     M5.Lcd.setTextDatum(MC_DATUM);
-    M5.Lcd.setTextSize(3); M5.Lcd.setTextColor(p.text, p.bg);    M5.Lcd.drawString(hm, 170, 42);
-    M5.Lcd.setTextSize(2); M5.Lcd.setTextColor(p.textDim, p.bg); M5.Lcd.drawString(ssl, 170, 72);
-                                                                  M5.Lcd.drawString(wdl, 170, 102);
+    // Landscape is H wide and W tall; text sits right of the pet.
+    const int tx = H - 70, ty = W / 2;
+    M5.Lcd.setTextSize(3); M5.Lcd.setTextColor(p.text, p.bg);    M5.Lcd.drawString(hm, tx, ty - 25);
+    M5.Lcd.setTextSize(2); M5.Lcd.setTextColor(p.textDim, p.bg); M5.Lcd.drawString(ssl, tx, ty + 5);
+                                                                  M5.Lcd.drawString(wdl, tx, ty + 35);
     M5.Lcd.setTextDatum(TL_DATUM);
     M5.Lcd.setTextSize(1);
   }
@@ -459,10 +467,10 @@ static void drawClock() {
     lastPetTick = millis();
     if (buddyMode) {
       // ASCII glyphs don't self-clear; wipe the box each tick. Species
-      // hardcode BUDDY_X_CENTER=67 / BUDDY_Y_OVERLAY=6 for particles so
+      // hardcode BUDDY_X_CENTER / BUDDY_Y_OVERLAY=6 for particles so
       // keep portrait coords and just swap the surface — pet lands
       // upper-left of landscape, which is where we want it anyway.
-      M5.Lcd.fillRect(0, 0, 115, 90, p.bg);
+      M5.Lcd.fillRect(BUDDY_X_CENTER - 67, 0, 115, 90, p.bg);
       buddyRenderTo(&M5.Lcd, activeState);
     } else {
       // Full-frame GIFs paint every pixel (transparent → pal.bg), so a
@@ -470,7 +478,7 @@ static void drawClock() {
       // last scanline. The entry fillScreen on paintedOrient change
       // already covers the surround.
       characterSetState(activeState);
-      characterRenderTo(&M5.Lcd, 57, 45);
+      characterRenderTo(&M5.Lcd, BUDDY_X_CENTER - 10, 45);
     }
   }
   M5.Lcd.setRotation(0);
@@ -520,12 +528,13 @@ void drawPasskey() {
   spr.fillSprite(p.bg);
   spr.setTextSize(1);
   spr.setTextColor(p.textDim, p.bg);
-  spr.setCursor(8, 56);  spr.print("BLUETOOTH PAIRING");
-  spr.setCursor(8, 184); spr.print("enter on desktop:");
-  spr.setTextSize(3);
+  spr.setCursor(8, H * 56 / 240);  spr.print("BLUETOOTH PAIRING");
+  spr.setCursor(8, H * 184 / 240); spr.print("enter on desktop:");
+  const int sz = W >= 200 ? 5 : 3;
+  spr.setTextSize(sz);
   spr.setTextColor(p.text, p.bg);
   char b[8]; snprintf(b, sizeof(b), "%06lu", (unsigned long)blePasskey());
-  spr.setCursor((W - 18 * 6) / 2, 110);
+  spr.setCursor((W - 6 * sz * 6) / 2, H / 2 - 4 * sz);
   spr.print(b);
 }
 
@@ -690,7 +699,7 @@ void drawInfo() {
 
 // Greedy word-wrap into fixed-width rows. Continuation rows get a leading
 // space. Returns number of rows written.
-static uint8_t wrapInto(const char* in, char out[][24], uint8_t maxRows, uint8_t width) {
+static uint8_t wrapInto(const char* in, char out[][ROW_MAX], uint8_t maxRows, uint8_t width) {
   uint8_t row = 0, col = 0;
   const char* p = in;
   while (*p && row < maxRows) {
@@ -735,22 +744,23 @@ static void drawApproval() {
   if (waited >= 10) spr.setTextColor(HOT, p.bg);
   spr.printf("approve? %lus", (unsigned long)waited);
 
-  // Size 2 only if it fits one line (~10 chars at 12px on 135px screen)
+  // Size 2 only if it fits one line (12px glyphs)
   int toolLen = strlen(tama.promptTool);
+  bool bigTool = toolLen <= (W - 8) / 12;
   spr.setTextColor(p.text, p.bg);
-  spr.setTextSize(toolLen <= 10 ? 2 : 1);
-  spr.setCursor(4, H - AREA + (toolLen <= 10 ? 14 : 18));
+  spr.setTextSize(bigTool ? 2 : 1);
+  spr.setCursor(4, H - AREA + (bigTool ? 14 : 18));
   spr.print(tama.promptTool);
   spr.setTextSize(1);
 
-  // Hint wraps at ~21 chars to two lines under the tool name
+  // Hint wraps at COLS chars to two lines under the tool name
   spr.setTextColor(p.textDim, p.bg);
   int hlen = strlen(tama.promptHint);
   spr.setCursor(4, H - AREA + 34);
-  spr.printf("%.21s", tama.promptHint);
-  if (hlen > 21) {
+  spr.printf("%.*s", COLS, tama.promptHint);
+  if (hlen > COLS) {
     spr.setCursor(4, H - AREA + 42);
-    spr.printf("%.21s", tama.promptHint + 21);
+    spr.printf("%.*s", COLS, tama.promptHint + COLS);
   }
 
   if (responseSent) {
@@ -890,7 +900,9 @@ void drawPet() {
 void drawHUD() {
   if (tama.promptId[0]) { drawApproval(); return; }
   const Palette& p = characterPalette();
-  const int SHOW = 3, LH = 8, WIDTH = 21;
+  // Transcript rows: 3 on the M5StickC Plus, more on taller screens.
+  const int LH = 8, WIDTH = COLS;
+  const int SHOW = H >= 280 ? 6 : 3;
   const int AREA = SHOW * LH + 4;
   spr.fillRect(0, H - AREA, W, AREA, p.bg);
   spr.setTextSize(1);
@@ -906,7 +918,7 @@ void drawHUD() {
 
   // Wrap all transcript lines into a flat display buffer. Track which
   // transcript index each display row came from, so we can dim older ones.
-  static char disp[32][24];
+  static char disp[32][ROW_MAX];
   static uint8_t srcOf[32];
   uint8_t nDisp = 0;
   for (uint8_t i = 0; i < tama.nLines && nDisp < 32; i++) {

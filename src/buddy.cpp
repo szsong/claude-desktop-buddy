@@ -9,8 +9,8 @@ extern TFT_eSprite spr;
 enum { B_SLEEP, B_IDLE, B_BUSY, B_ATTENTION, B_CELEBRATE, B_DIZZY, B_HEART };
 
 // ──────────────── shared geometry ────────────────
-const int BUDDY_X_CENTER = 67;
-const int BUDDY_CANVAS_W = 135;
+const int BUDDY_X_CENTER = BOARD_UI_W / 2;
+const int BUDDY_CANVAS_W = BOARD_UI_W;
 const int BUDDY_Y_BASE   = 30;
 const int BUDDY_Y_OVERLAY = 6;
 const int BUDDY_CHAR_W   = 6;
@@ -147,7 +147,7 @@ static uint8_t lastDrawnSpecies = 0xFF;
 void buddyInvalidate() { lastDrawnState = 0xFF; }
 
 void buddySetPeek(bool peek) {
-  uint8_t s = peek ? 1 : 2;
+  uint8_t s = peek ? 1 : BOARD_BUDDY_SCALE;
   if (s == _scale) return;
   _scale = s;
   buddyInvalidate();
