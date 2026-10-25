@@ -46,11 +46,13 @@ constexpr int PIN_SCK = 6, PIN_MOSI = 7, PIN_DC = 4, PIN_RST = 8, PIN_CS = 5, PI
 constexpr int PIN_SCL = 10, PIN_SDA = 11;
 constexpr int PIN_BOOT = 0, PIN_PWR = 40, PIN_BAT_EN = 41, PIN_BAT_ADC = 1;
 constexpr int PIN_BUZZER = 42;
+constexpr int PIN_TP_RST = 13;
 #else
 constexpr int PIN_SCK = 1, PIN_MOSI = 2, PIN_DC = 3, PIN_RST = 4, PIN_CS = 5, PIN_BL = 6;
 constexpr int PIN_SCL = 7, PIN_SDA = 8;
 constexpr int PIN_BOOT = 9, PIN_PWR = 18, PIN_BAT_EN = 15, PIN_BAT_ADC = 0;
 constexpr int PIN_BUZZER = -1;
+constexpr int PIN_TP_RST = -1;
 #endif
 constexpr int PANEL_W = 240, PANEL_H = 280, PANEL_RAM_Y = 20;
 constexpr int UI_W = 135, UI_H = 240;
@@ -118,21 +120,66 @@ class WsLcd : public lgfx::LGFX_Device {
 
 // Polled button with the M5 Button API subset the firmware uses.
 class WsButton {
+ protected:
   uint8_t  _pin;
   bool     _now = false, _prev = false;
   uint32_t _since = 0;
+  void set(bool down) {
+    _prev = _now;
+    _now = down;
+    if (_now != _prev) _since = millis();
+  }
  public:
   explicit WsButton(uint8_t pin) : _pin(pin) {}
   void begin() { pinMode(_pin, INPUT_PULLUP); }
-  void read() {
-    _prev = _now;
-    _now = digitalRead(_pin) == LOW;
-    if (_now != _prev) _since = millis();
+  // `also` ORs in a second input (the touch screen for BtnB).
+  void read(bool also = false) {
+    bool key = digitalRead(_pin) == LOW;
+#if defined(BOARD_DEBUG_KEYS)
+    static bool last[49];
+    if (key != last[_pin]) Serial.printf("[key] gpio%u %s\n", _pin, key ? "down" : "up");
+    last[_pin] = key;
+#endif
+    set(key || also);
   }
   bool isPressed()   const { return _now; }
   bool wasPressed()  const { return _now && !_prev; }
   bool wasReleased() const { return !_now && _prev; }
   bool pressedFor(uint32_t ms) const { return _now && millis() - _since >= ms; }
+};
+
+// CST816T touch controller (@0x15). The whole screen acts as one button,
+// merged into BtnB: a tap does what the M5's side button does. It shares the I2C bus with the IMU and RTC.
+class WsTouch : public WsButton {
+  static constexpr uint8_t ADDR = 0x15;
+  bool _ok = false;
+ public:
+  WsTouch() : WsButton(0) {}
+  void begin() {
+    if (ws169::PIN_TP_RST >= 0) {
+      pinMode(ws169::PIN_TP_RST, OUTPUT);
+      digitalWrite(ws169::PIN_TP_RST, LOW);  delay(10);
+      digitalWrite(ws169::PIN_TP_RST, HIGH); delay(50);
+    }
+    Wire.beginTransmission(ADDR);
+    _ok = Wire.endTransmission() == 0;
+    if (_ok) {
+      // Keep it awake: in auto-sleep it stops answering I2C between touches.
+      Wire.beginTransmission(ADDR); Wire.write(0xFE); Wire.write(0x01); Wire.endTransmission();
+    }
+    Serial.printf("[touch] cst816 %s\n", _ok ? "found" : "not found");
+  }
+  void read() {
+    if (!_ok) return;
+    Wire.beginTransmission(ADDR); Wire.write(0x02);
+    bool down = false;
+    if (Wire.endTransmission(false) == 0 && Wire.requestFrom(ADDR, (uint8_t)1) == 1)
+      down = (Wire.read() & 0x0F) > 0;   // number of fingers
+#if defined(BOARD_DEBUG_KEYS)
+    if (down != _now) Serial.printf("[touch] %s\n", down ? "down" : "up");
+#endif
+    set(down);
+  }
 };
 
 // Stand-in for the M5StickC Plus AXP192: backlight, battery, power key.
@@ -256,6 +303,7 @@ class WsBoard {
   WsLcd    Lcd;
   WsButton BtnA{ws169::PIN_BOOT};
   WsButton BtnB{ws169::PIN_PWR};
+  WsTouch  Touch;
   WsPower  Axp{&Lcd};
   WsImu    Imu;
   WsRtc    Rtc;
@@ -268,8 +316,9 @@ class WsBoard {
     Lcd.begin();
     BtnA.begin();
     BtnB.begin();
+    Touch.begin();
   }
-  void update() { BtnA.read(); BtnB.read(); }
+  void update() { Touch.read(); BtnA.read(); BtnB.read(Touch.isPressed()); }
 };
 
 inline WsBoard M5;
