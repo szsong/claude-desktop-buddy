@@ -952,6 +952,16 @@ void setup() {
   M5.Lcd.setRotation(0);
   M5.Imu.Init();
   M5.Beep.begin();
+  // Allocate the frame sprite before BLE takes its share of internal RAM.
+  // A full 240x280 frame is 134 KB at 16 bits; without PSRAM that may not
+  // fit in one block, so fall back to 8-bit colour rather than no screen.
+  if (!spr.createSprite(W, H)) {
+    spr.setColorDepth(8);
+    spr.createSprite(W, H);
+  }
+  Serial.printf("sprite %dx%d @%ubpp, free heap %u, largest block %u\n",
+                spr.width(), spr.height(), (unsigned)spr.getColorDepth(),
+                (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
   startBt();
   if (LED_PIN >= 0) {
     pinMode(LED_PIN, OUTPUT);
@@ -965,7 +975,6 @@ void setup() {
   buddyInit();
 
   // BLE stays always-on; s.bt is stored as a preference only.
-  spr.createSprite(W, H);
   characterInit(nullptr);  // scan /characters/ for whatever is installed
   gifAvailable = characterLoaded();
   // species NVS: 0..N-1 = ASCII species, 0xFF = use GIF (also the default,
@@ -1203,10 +1212,11 @@ void loop() {
   }
   lastPasskey = pk;
 
-  // Closing a menu leaves its panel in the sprite: the ASCII buddy only
-  // repaints its own strip, so wipe the frame once when an overlay goes away.
+  // Closing a menu or the pairing screen leaves it in the sprite: the ASCII
+  // buddy only repaints its own strip, so wipe the frame once when an
+  // overlay goes away.
   static bool hadOverlay = false;
-  bool overlay = menuOpen || settingsOpen || resetOpen;
+  bool overlay = menuOpen || settingsOpen || resetOpen || blePasskey();
   if (hadOverlay && !overlay) {
     spr.fillSprite(characterPalette().bg);
     characterInvalidate();

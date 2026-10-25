@@ -47,6 +47,9 @@ class RxCallbacks : public BLECharacteristicCallbacks {
     // std::string on Arduino core 2.x, String on 3.x.
     auto v = c->getValue();
     if (v.length()) rxPush((const uint8_t*)v.c_str(), v.length());
+    // RX only accepts encrypted writes, so data arriving means pairing is
+    // done, even if the stack never delivered the auth-complete callback.
+    if (v.length() && !secure) { secure = true; passkey = 0; }
   }
 };
 
@@ -176,7 +179,9 @@ void bleInit(const char* deviceName) {
 
 bool bleConnected() { return connected; }
 bool bleSecure()    { return secure; }
-uint32_t blePasskey() { return passkey; }
+// Once the link is encrypted the code is no longer needed, even if the
+// stack skipped the auth-complete callback.
+uint32_t blePasskey() { return secure ? 0 : passkey; }
 
 void bleClearBonds() {
 #if defined(CONFIG_NIMBLE_ENABLED)
