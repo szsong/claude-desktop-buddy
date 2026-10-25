@@ -14,6 +14,8 @@ void buddySetSpecies(const char* name);
 void buddySetSpeciesIdx(uint8_t idx);
 void buddyNextSpecies();
 void buddySetPeek(bool peek);
+// Explicit text scale (1 = peek size); buddySetPeek(false) restores the home size.
+void buddySetScale(uint8_t scale);
 uint8_t buddySpeciesIdx();
 uint8_t buddySpeciesCount();
 const char* buddySpeciesName();

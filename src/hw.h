@@ -11,4 +11,5 @@
 #define BOARD_UI_W 135
 #define BOARD_UI_H 240
 #define BOARD_BUDDY_SCALE 2
+#define BOARD_CLOCK_BUDDY_SCALE 1   // buddy above the portrait clock
 #endif

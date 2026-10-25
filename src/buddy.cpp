@@ -146,8 +146,9 @@ static uint8_t lastDrawnState = 0xFF;
 static uint8_t lastDrawnSpecies = 0xFF;
 void buddyInvalidate() { lastDrawnState = 0xFF; }
 
-void buddySetPeek(bool peek) {
-  uint8_t s = peek ? 1 : BOARD_BUDDY_SCALE;
+void buddySetPeek(bool peek) { buddySetScale(peek ? 1 : BOARD_BUDDY_SCALE); }
+
+void buddySetScale(uint8_t s) {
   if (s == _scale) return;
   _scale = s;
   buddyInvalidate();

@@ -423,9 +423,10 @@ static void drawClock() {
 
   if (clockOrient == 0) {
     paintedOrient = 0;
-    // Bottom half — buddy naturally lives at y=0..82, GIF peeks at top
-    // via peek mode. Clearing from 90 leaves both untouched.
-    spr.fillRect(0, 90, W, H - 90, p.bg);
+    // Bottom part — the buddy shrinks to clock size (y=0..82 at 1x,
+    // ..~130 at 2x on taller screens), GIF peeks at top via peek mode.
+    const int top = BOARD_CLOCK_BUDDY_SCALE > 1 ? 140 : 90;
+    spr.fillRect(0, top, W, H - top, p.bg);
     spr.setTextDatum(MC_DATUM);
     spr.setTextSize(W >= 200 ? 6 : 4); spr.setTextColor(p.text, p.bg);
     spr.drawString(hm, CX, H - 100);
@@ -1187,8 +1188,11 @@ void loop() {
   static bool wasClocking = false;
   static bool wasLandscape = false;
   if (clocking != wasClocking || landscapeClock != wasLandscape) {
-    if (clocking && !landscapeClock) characterSetPeek(true);
-    else applyDisplayMode();
+    if (clocking && !landscapeClock) {
+      // Shrink the pet so it sits above the clock instead of under it.
+      characterSetPeek(true);
+      buddySetScale(BOARD_CLOCK_BUDDY_SCALE);
+    } else applyDisplayMode();
     characterInvalidate();
     if (buddyMode) buddyInvalidate();
     wasClocking = clocking;
