@@ -1194,6 +1194,19 @@ void loop() {
   else { clockOrient = 0; orientFrames = 0; paintedOrient = 0; }
   bool landscapeClock = clocking && clockOrient != 0;
 
+  // Shrink the pet while there's a transcript or approval prompt to show, so
+  // the text gets the room. Home size otherwise.
+  if (!clocking && displayMode == DISP_NORMAL && buddyMode) {
+    static uint8_t lastScale = 0;
+    bool hasText = settings().hud && (tama.nLines > 0 || inPrompt);
+    uint8_t want = hasText ? BOARD_MSG_BUDDY_SCALE : BOARD_BUDDY_SCALE;
+    buddySetScale(want);
+    if (want != lastScale) {
+      spr.fillSprite(characterPalette().bg);   // clear the larger pet's leftovers
+      lastScale = want;
+    }
+  }
+
   static bool wasClocking = false;
   static bool wasLandscape = false;
   if (clocking != wasClocking || landscapeClock != wasLandscape) {

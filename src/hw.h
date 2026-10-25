@@ -12,4 +12,5 @@
 #define BOARD_UI_H 240
 #define BOARD_BUDDY_SCALE 2
 #define BOARD_CLOCK_BUDDY_SCALE 1   // buddy above the portrait clock
+#define BOARD_MSG_BUDDY_SCALE 2     // buddy while a transcript/prompt shows
 #endif
