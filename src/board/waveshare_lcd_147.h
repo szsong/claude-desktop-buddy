@@ -27,7 +27,10 @@
 #define BOARD_UI_W 320
 #define BOARD_UI_H 172
 #define BOARD_HOME_ROTATION 1
-#define BOARD_BUDDY_SCALE 2
+#define BOARD_BUDDY_SCALE 1
+#define BOARD_PET_CORNER 1     // pet in the top-left corner, status light beside it
+#define BOARD_CORNER_W 100
+#define BOARD_CORNER_H 66
 #define BOARD_CLOCK_BUDDY_SCALE 1
 #define BOARD_MSG_BUDDY_SCALE 1
 

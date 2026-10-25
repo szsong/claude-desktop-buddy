@@ -29,6 +29,11 @@ const int ROW_MAX = 48;          // wrap buffer width, >= COLS + 1
 // Transcript and approval text: size 2 on 240px-wide screens so it reads
 // at arm's length; MCOLS is the matching column count (21 / 19).
 const int TS = W >= 200 ? 2 : 1;
+#if defined(BOARD_PET_CORNER)
+#define BOARD_PET_CORNER_ON 1
+#else
+#define BOARD_PET_CORNER_ON 0
+#endif
 const int MCOLS = (W - 8) / (6 * TS);
 const int CX = W / 2;
 const int CY_BASE = 120;
@@ -438,16 +443,21 @@ static void drawClock() {
     paintedOrient = 0;
     // Bottom part — the buddy shrinks to clock size (y=0..82 at 1x,
     // ..~130 at 2x on taller screens), GIF peeks at top via peek mode.
+    #if defined(BOARD_PET_CORNER)
+    const int top = BOARD_CORNER_H;
+#else
     const int top = BOARD_CLOCK_BUDDY_SCALE > 1 ? 140 : 90;
+#endif
     spr.fillRect(0, top, W, H - top, p.bg);
     spr.setTextDatum(MC_DATUM);
     if (W > H) {
       // Landscape: time big under the pet, seconds and date on one row.
       spr.setTextSize(6); spr.setTextColor(p.text, p.bg);
-      spr.drawString(hm, CX, 142);
+      const int hmY = top + (H - top) * 35 / 100, rowY = H - 35;
+      spr.drawString(hm, CX, hmY);
       spr.setTextSize(2); spr.setTextColor(p.textDim, p.bg);
-      spr.drawString(ss, CX - 60, 205);
-      spr.drawString(dl, CX + 40, 205);
+      spr.drawString(ss, CX - 60, rowY);
+      spr.drawString(dl, CX + 40, rowY);
     } else {
       spr.setTextSize(W >= 200 ? 6 : 4); spr.setTextColor(p.text, p.bg);
       spr.drawString(hm, CX, H - 100);
@@ -754,10 +764,38 @@ static uint8_t wrapInto(const char* in, char out[][ROW_MAX], uint8_t maxRows, ui
   return row;
 }
 
+// Status light for the corner layout: red = waiting for you, yellow = working,
+// green = idle, grey = no Claude connected.
+static void drawStatus(bool inPrompt) {
+#if defined(BOARD_PET_CORNER)
+  const Palette& p = characterPalette();
+  const int x0 = BOARD_CORNER_W;
+  spr.fillRect(x0, 0, W - x0, BOARD_CORNER_H - 2, p.bg);
+  uint16_t col; const char* label;
+  if (!tama.connected)                              { col = p.textDim; label = "offline"; }
+  else if (inPrompt || tama.sessionsWaiting > 0)    { col = RED;       label = "waiting"; }
+  else if (tama.sessionsRunning > 0)                { col = 0xFFE0;    label = "working"; }
+  else                                              { col = GREEN;     label = "idle"; }
+  spr.fillCircle(x0 + 22, 30, 16, col);
+  spr.drawCircle(x0 + 22, 30, 17, p.textDim);
+  spr.setTextSize(2);
+  spr.setTextColor(col, p.bg);
+  spr.setCursor(x0 + 46, 22);
+  spr.print(label);
+  spr.setTextSize(1);
+#else
+  (void)inPrompt;
+#endif
+}
+
 static void drawApproval() {
   const Palette& p = characterPalette();
   // Layout in units of the message text height (8px at size 1).
+#if defined(BOARD_PET_CORNER)
+  const int AREA = H - BOARD_CORNER_H;
+#else
   const int AREA = TS > 1 ? H - 90 : 78;
+#endif
   const int y0 = H - AREA;
   spr.fillRect(0, y0, W, AREA, p.bg);
   spr.drawFastHLine(0, y0, W, p.textDim);
@@ -771,7 +809,11 @@ static void drawApproval() {
 
   // Double size only if it fits one line
   int toolLen = strlen(tama.promptTool);
+#if defined(BOARD_PET_CORNER)
+  bool bigTool = false;   // not enough height for a double-size tool name
+#else
   bool bigTool = toolLen <= (W - 8) / (12 * TS);
+#endif
   spr.setTextColor(p.text, p.bg);
   spr.setTextSize(bigTool ? 2 * TS : TS);
   spr.setCursor(4, y0 + 4 + (bigTool ? 10 : 14) * TS);
@@ -781,9 +823,15 @@ static void drawApproval() {
   // Hint wraps at MCOLS chars to two lines under the tool name
   spr.setTextColor(p.textDim, p.bg);
   int hlen = strlen(tama.promptHint);
+#if defined(BOARD_PET_CORNER)
+  const int hintTop = 24;
+  const int hintRows = (H - 4 - 8 * TS - (y0 + 4 + hintTop * TS)) / (8 * TS);
+#else
+  const int hintTop = 30;
   const int hintRows = TS > 1 ? 5 : 2;
+#endif
   for (int r = 0; r < hintRows && r * MCOLS < hlen; r++) {
-    spr.setCursor(4, y0 + 4 + (30 + 8 * r) * TS);
+    spr.setCursor(4, y0 + 4 + (hintTop + 8 * r) * TS);
     spr.printf("%.*s", MCOLS, tama.promptHint + r * MCOLS);
   }
 
@@ -930,7 +978,11 @@ void drawHUD() {
   // On big screens the pet is at its smallest (1x, ending near y=90) and the
   // text takes everything below it.
   const int LH = 8 * TS, WIDTH = MCOLS;
+  #if defined(BOARD_PET_CORNER)
+  const int SHOW = TS > 1 ? (H - BOARD_CORNER_H) / LH : 3;
+#else
   const int SHOW = TS > 1 ? (H - 86) / LH : 3;
+#endif
   const int AREA = SHOW * LH + 4;
   spr.fillRect(0, H - AREA, W, AREA, p.bg);
   spr.setTextSize(TS);
@@ -1225,6 +1277,10 @@ void loop() {
   else { clockOrient = 0; orientFrames = 0; paintedOrient = 0; }
   bool landscapeClock = clocking && clockOrient != 0;
 
+  // Corner layout: pet top-left, status light beside it, everything else for text.
+  const bool cornerOn = BOARD_PET_CORNER_ON && displayMode == DISP_NORMAL;
+  buddySetCorner(cornerOn);
+
   // Shrink the pet while there's a transcript or approval prompt to show, so
   // the text gets the room. Home size otherwise.
   if (!clocking && displayMode == DISP_NORMAL && buddyMode) {
@@ -1234,7 +1290,7 @@ void loop() {
     buddySetScale(want);
     // The pet strip only repaints its own rows; also clear down to the text
     // so nothing from a bigger pet or an old message lingers in between.
-    if (hasText && TS > 1) {
+    if (hasText && TS > 1 && !cornerOn) {
       int lh = 8 * TS;
       buddySetClearH(inPrompt ? 90 : H - ((H - 86) / lh * lh + 4));
     } else buddySetClearH(0);
@@ -1330,6 +1386,7 @@ void loop() {
     else if (displayMode == DISP_INFO) drawInfo();
     else if (displayMode == DISP_PET) drawPet();
     else if (settings().hud) drawHUD();
+    if (BOARD_PET_CORNER_ON && displayMode == DISP_NORMAL && !blePasskey()) drawStatus(inPrompt);
     if (resetOpen) drawReset();
     else if (settingsOpen) drawSettings();
     else if (menuOpen) drawMenu();
