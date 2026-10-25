@@ -318,6 +318,9 @@ class WsBoard {
   void begin() {
     Axp.begin();                    // latch battery power first
     Serial.begin(115200);
+    // USB serial blocks on every print once its buffer fills and the host
+    // isn't reading (plugged in, no monitor open), which stalls the UI.
+    Serial.setTxTimeoutMs(0);
     Wire.begin(ws169::PIN_SDA, ws169::PIN_SCL);
     Lcd.begin();
     BtnA.begin();
