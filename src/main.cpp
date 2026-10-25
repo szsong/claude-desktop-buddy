@@ -739,7 +739,7 @@ static uint8_t wrapInto(const char* in, char out[][ROW_MAX], uint8_t maxRows, ui
 static void drawApproval() {
   const Palette& p = characterPalette();
   // Layout in units of the message text height (8px at size 1).
-  const int AREA = TS > 1 ? 120 : 78;
+  const int AREA = TS > 1 ? H - 90 : 78;
   const int y0 = H - AREA;
   spr.fillRect(0, y0, W, AREA, p.bg);
   spr.drawFastHLine(0, y0, W, p.textDim);
@@ -763,11 +763,10 @@ static void drawApproval() {
   // Hint wraps at MCOLS chars to two lines under the tool name
   spr.setTextColor(p.textDim, p.bg);
   int hlen = strlen(tama.promptHint);
-  spr.setCursor(4, y0 + 4 + 30 * TS);
-  spr.printf("%.*s", MCOLS, tama.promptHint);
-  if (hlen > MCOLS) {
-    spr.setCursor(4, y0 + 4 + 38 * TS);
-    spr.printf("%.*s", MCOLS, tama.promptHint + MCOLS);
+  const int hintRows = TS > 1 ? 5 : 2;
+  for (int r = 0; r < hintRows && r * MCOLS < hlen; r++) {
+    spr.setCursor(4, y0 + 4 + (30 + 8 * r) * TS);
+    spr.printf("%.*s", MCOLS, tama.promptHint + r * MCOLS);
   }
 
   const int fy = H - 4 - 8 * TS;
@@ -910,8 +909,10 @@ void drawHUD() {
   if (tama.promptId[0]) { drawApproval(); return; }
   const Palette& p = characterPalette();
   // Transcript rows: 3 on the M5StickC Plus, 4 (at double size) on taller screens.
+  // On big screens the pet is at its smallest (1x, ending near y=90) and the
+  // text takes everything below it.
   const int LH = 8 * TS, WIDTH = MCOLS;
-  const int SHOW = H >= 280 ? 4 : 3;
+  const int SHOW = TS > 1 ? (H - 90 - 4) / LH : 3;
   const int AREA = SHOW * LH + 4;
   spr.fillRect(0, H - AREA, W, AREA, p.bg);
   spr.setTextSize(TS);
@@ -920,8 +921,18 @@ void drawHUD() {
 
   if (tama.nLines == 0) {
     spr.setTextColor(p.text, p.bg);
-    spr.setCursor(4, H - LH - 2);
-    spr.print(tama.msg);
+    if (TS > 1) {
+      static char mrow[8][ROW_MAX];
+      uint8_t n = wrapInto(tama.msg, mrow, 8, WIDTH);
+      for (uint8_t i = 0; i < n && i < SHOW; i++) {
+        spr.setCursor(4, H - AREA + 2 + i * LH);
+        spr.print(mrow[i]);
+      }
+    } else {
+      spr.setCursor(4, H - LH - 2);
+      spr.print(tama.msg);
+    }
+    spr.setTextSize(1);
     return;
   }
 
@@ -1198,7 +1209,7 @@ void loop() {
   // the text gets the room. Home size otherwise.
   if (!clocking && displayMode == DISP_NORMAL && buddyMode) {
     static uint8_t lastScale = 0;
-    bool hasText = settings().hud && (tama.nLines > 0 || inPrompt);
+    bool hasText = settings().hud && (tama.nLines > 0 || inPrompt || tama.msg[0]);
     uint8_t want = hasText ? BOARD_MSG_BUDDY_SCALE : BOARD_BUDDY_SCALE;
     buddySetScale(want);
     if (want != lastScale) {

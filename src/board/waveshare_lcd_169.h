@@ -38,7 +38,7 @@
 #define BOARD_UI_H 280
 #define BOARD_BUDDY_SCALE 3
 #define BOARD_CLOCK_BUDDY_SCALE 2
-#define BOARD_MSG_BUDDY_SCALE 2
+#define BOARD_MSG_BUDDY_SCALE 1
 
 // M5StickCPlus colour names used by the UI.
 #define RED   0xF800
