@@ -930,7 +930,7 @@ void drawHUD() {
   // On big screens the pet is at its smallest (1x, ending near y=90) and the
   // text takes everything below it.
   const int LH = 8 * TS, WIDTH = MCOLS;
-  const int SHOW = TS > 1 ? (H - 90 - 4) / LH : 3;
+  const int SHOW = TS > 1 ? (H - 86) / LH : 3;
   const int AREA = SHOW * LH + 4;
   spr.fillRect(0, H - AREA, W, AREA, p.bg);
   spr.setTextSize(TS);
@@ -1232,6 +1232,12 @@ void loop() {
     bool hasText = settings().hud && (tama.nLines > 0 || inPrompt || tama.msg[0]);
     uint8_t want = hasText ? BOARD_MSG_BUDDY_SCALE : BOARD_BUDDY_SCALE;
     buddySetScale(want);
+    // The pet strip only repaints its own rows; also clear down to the text
+    // so nothing from a bigger pet or an old message lingers in between.
+    if (hasText && TS > 1) {
+      int lh = 8 * TS;
+      buddySetClearH(inPrompt ? 90 : H - ((H - 86) / lh * lh + 4));
+    } else buddySetClearH(0);
     if (want != lastScale) {
       spr.fillSprite(characterPalette().bg);   // clear the larger pet's leftovers
       lastScale = want;

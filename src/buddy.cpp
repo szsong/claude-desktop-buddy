@@ -146,6 +146,9 @@ static uint8_t lastDrawnState = 0xFF;
 static uint8_t lastDrawnSpecies = 0xFF;
 void buddyInvalidate() { lastDrawnState = 0xFF; }
 
+static int _clearH = 0;
+void buddySetClearH(int h) { if (h != _clearH) { _clearH = h; buddyInvalidate(); } }
+
 void buddySetPeek(bool peek) { buddySetScale(peek ? 1 : BOARD_BUDDY_SCALE); }
 
 void buddySetScale(uint8_t s) {
@@ -189,8 +192,9 @@ void buddyTick(uint8_t personaState) {
   lastDrawnSpecies = currentSpeciesIdx;
 
   // Clear the whole render strip — at 2× the body reaches y≈126, at 1× ≈82.
-  spr.fillRect(0, 0, BUDDY_CANVAS_W,
-               (BUDDY_Y_BASE + 5 * BUDDY_CHAR_H + 12) * _scale, BUDDY_BG);
+  int clearH = (BUDDY_Y_BASE + 5 * BUDDY_CHAR_H + 12) * _scale;
+  if (_clearH > clearH) clearH = _clearH;
+  spr.fillRect(0, 0, BUDDY_CANVAS_W, clearH, BUDDY_BG);
 
   const Species* sp = SPECIES_TABLE[currentSpeciesIdx];
   if (sp->states[personaState]) sp->states[personaState](tickCount);
