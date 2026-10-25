@@ -1,13 +1,29 @@
 #pragma once
-// Waveshare ESP32-C6-Touch-LCD-1.69 (also fits the non-touch ESP32-C6-LCD-1.69).
+// Waveshare 1.69" boards: ESP32-S3-Touch-LCD-1.69 and ESP32-C6-Touch-LCD-1.69
+// (the non-touch C6 variant fits too). Both pair a ST7789V2 240x280 panel
+// with a QMI8658 IMU (@0x6B), PCF85063 RTC (@0x51) and CST816 touch on I2C,
+// a BOOT key, a PWR key and a battery latch; only the pins differ.
 // Presents the subset of the M5StickCPlus API the firmware uses, so the UI
 // code doesn't need to know which board it's on.
 //
-//   LCD   ST7789V2 240x280, SPI: SCK 1, MOSI 2, DC 3, RST 4, CS 5, BL 6
-//   I2C   SDA 8, SCL 7: QMI8658 IMU @0x6B, PCF85063 RTC @0x51, CST816 touch
-//   Keys  BOOT GPIO9 (BtnA), PWR GPIO18 (BtnB), both active-low
-//   Power BAT_EN GPIO15 must be held high to stay on when running on battery;
-//         battery sense on GPIO0 through a 1:3 divider
+//              S3    C6
+//   LCD SCK     6     1
+//   LCD MOSI    7     2
+//   LCD DC      4     3
+//   LCD RST     8     4
+//   LCD CS      5     5
+//   LCD BL     15     6
+//   I2C SDA    11     8
+//   I2C SCL    10     7
+//   BOOT (A)    0     9
+//   PWR  (B)   40    18    active-low
+//   PWR latch  41    15    hold high to stay on when running on battery
+//   Battery     1     0    ADC through a 1:3 divider
+//   Buzzer     42     -    (C6 has an ES8311 codec instead; not wired up yet)
+//
+// The S3 pins are Waveshare's original pin group. Their example code has an
+// alternate group (PWR 36, latch 35, buzzer 33) for some board revisions, but
+// those pins belong to the octal PSRAM on the ESP32-S3R8 these boards use.
 //
 // The UI was laid out for the M5StickC Plus's 135x240 panel. For now the
 // panel window is shrunk to a centred 135x240 region so every screen
@@ -25,9 +41,17 @@
 #define GREEN 0x07E0
 
 namespace ws169 {
+#if defined(BOARD_WS_S3_TOUCH_LCD_169)
+constexpr int PIN_SCK = 6, PIN_MOSI = 7, PIN_DC = 4, PIN_RST = 8, PIN_CS = 5, PIN_BL = 15;
+constexpr int PIN_SCL = 10, PIN_SDA = 11;
+constexpr int PIN_BOOT = 0, PIN_PWR = 40, PIN_BAT_EN = 41, PIN_BAT_ADC = 1;
+constexpr int PIN_BUZZER = 42;
+#else
 constexpr int PIN_SCK = 1, PIN_MOSI = 2, PIN_DC = 3, PIN_RST = 4, PIN_CS = 5, PIN_BL = 6;
 constexpr int PIN_SCL = 7, PIN_SDA = 8;
 constexpr int PIN_BOOT = 9, PIN_PWR = 18, PIN_BAT_EN = 15, PIN_BAT_ADC = 0;
+constexpr int PIN_BUZZER = -1;
+#endif
 constexpr int PANEL_W = 240, PANEL_H = 280, PANEL_RAM_Y = 20;
 constexpr int UI_W = 135, UI_H = 240;
 }
@@ -217,11 +241,14 @@ class WsRtc {
   }
 };
 
-// The board's speaker goes through an ES8311 codec; silent until that's wired up.
+// Piezo buzzer on the S3. The C6's speaker goes through an ES8311 codec and
+// stays silent until that's wired up.
 struct WsBeep {
-  void begin() {}
+  void begin() { if (ws169::PIN_BUZZER >= 0) pinMode(ws169::PIN_BUZZER, OUTPUT); }
   void update() {}
-  void tone(uint16_t, uint16_t) {}
+  void tone(uint16_t freq, uint16_t dur) {
+    if (ws169::PIN_BUZZER >= 0) ::tone(ws169::PIN_BUZZER, freq, dur);
+  }
 };
 
 class WsBoard {

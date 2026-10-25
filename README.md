@@ -27,16 +27,18 @@ depends on the M5StickCPlus library for its display, IMU, and button
 drivers—so you'll need that board, or a fork that swaps those drivers for
 your own pin layout.
 
-### Waveshare ESP32-C6-Touch-LCD-1.69
+### Waveshare ESP32-S3 / ESP32-C6 Touch-LCD-1.69
 
-This fork also builds for the Waveshare ESP32-C6-Touch-LCD-1.69 (and the
-non-touch ESP32-C6-LCD-1.69). Board support lives in
-`src/board/ws_c6_touch_lcd_169.h`, which maps the M5StickC Plus API onto
-the board's ST7789V2 panel (via LovyanGFX), QMI8658 IMU, PCF85063 RTC and
-its two keys. The UI currently renders in a centred 135x240 window.
+This fork also builds for the Waveshare ESP32-S3-Touch-LCD-1.69 and
+ESP32-C6-Touch-LCD-1.69 (and the non-touch ESP32-C6-LCD-1.69). Board
+support lives in `src/board/waveshare_lcd_169.h`, which maps the M5StickC
+Plus API onto the board's ST7789V2 panel (via LovyanGFX), QMI8658 IMU,
+PCF85063 RTC, buzzer (S3 only) and its two keys. The UI currently renders
+in a centred 135x240 window.
 
 ```bash
-pio run -e waveshare-c6-lcd-169 -t upload
+pio run -e waveshare-s3-lcd-169 -t upload   # ESP32-S3 board
+pio run -e waveshare-c6-lcd-169 -t upload   # ESP32-C6 board
 ```
 
 | M5StickC Plus | Waveshare 1.69 |
@@ -45,7 +47,7 @@ pio run -e waveshare-c6-lcd-169 -t upload
 | B (right)     | PWR (side)     |
 | Power button  | not mapped yet |
 
-Not wired up yet: speaker (ES8311 codec), touch, full-screen layout.
+Not wired up yet: touch, full-screen layout, and the C6's speaker (ES8311 codec).
 
 ## Flashing
 
