@@ -951,6 +951,11 @@ void setup() {
   M5.begin();
   M5.Lcd.setRotation(0);
   M5.Imu.Init();
+  {
+    float ax, ay, az;
+    M5.Imu.getAccelData(&ax, &ay, &az);
+    Serial.printf("imu %.2f %.2f %.2f\n", ax, ay, az);
+  }
   M5.Beep.begin();
   // Allocate the frame sprite before BLE takes its share of internal RAM.
   // A full 240x280 frame is 134 KB at 16 bits; without PSRAM that may not

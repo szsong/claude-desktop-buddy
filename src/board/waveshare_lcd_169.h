@@ -251,7 +251,10 @@ class WsImu {
     if (Wire.requestFrom(ADDR, (uint8_t)6) != 6) return;
     int16_t v[3];
     for (int i = 0; i < 3; i++) { uint8_t lo = Wire.read(), hi = Wire.read(); v[i] = (int16_t)(hi << 8 | lo); }
-    *ax = v[0] / 8192.0f; *ay = v[1] / 8192.0f; *az = v[2] / 8192.0f;
+    // Match the M5StickC Plus frame the UI expects (screen up = +Z). On
+    // this board the QMI8658 reads -Z with the screen facing up, which made
+    // the buddy think it was face-down and nap whenever it lay on a desk.
+    *ax = v[0] / 8192.0f; *ay = v[1] / 8192.0f; *az = -v[2] / 8192.0f;
   }
 };
 
