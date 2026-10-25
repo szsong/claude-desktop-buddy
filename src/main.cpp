@@ -33,6 +33,14 @@ const int MCOLS = (W - 8) / (6 * TS);
 const int CX = W / 2;
 const int CY_BASE = 120;
 const int LED_PIN = BOARD_LED_PIN; // active-low; -1 = board has no LED
+// LOW = on. Boards with an addressable RGB LED (BOARD_LED_WS2812) glow orange.
+static void ledWrite(uint8_t level) {
+#if defined(BOARD_LED_WS2812)
+  rgbLedWrite(LED_PIN, level == LOW ? 48 : 0, level == LOW ? 14 : 0, 0);
+#else
+  digitalWrite(LED_PIN, level);
+#endif
+}
 
 // Colors used across multiple UI surfaces
 const uint16_t HOT   = 0xFA20;   // red-orange: warnings, impatience, deny
@@ -1000,8 +1008,10 @@ void setup() {
                 (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
   startBt();
   if (LED_PIN >= 0) {
+#if !defined(BOARD_LED_WS2812)
     pinMode(LED_PIN, OUTPUT);
-    digitalWrite(LED_PIN, HIGH);   // off
+#endif
+    ledWrite(HIGH);   // off
   }
   applyBrightness();
   lastInteractMs = millis();
@@ -1063,9 +1073,9 @@ void loop() {
   // LED: pulse on attention, otherwise off
   if (LED_PIN < 0) {
   } else if (activeState == P_ATTENTION && settings().led) {
-    digitalWrite(LED_PIN, (now / 400) % 2 ? LOW : HIGH);
+    ledWrite((now / 400) % 2 ? LOW : HIGH);
   } else {
-    digitalWrite(LED_PIN, HIGH);
+    ledWrite(HIGH);
   }
 
   // shake → dizzy + force scenario advance

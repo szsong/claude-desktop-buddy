@@ -6,6 +6,8 @@
 // rotation that gives that orientation, and the buddy scales.
 #if defined(BOARD_WS_LCD_169)
 #include "board/waveshare_lcd_169.h"
+#elif defined(BOARD_WS_LCD_147)
+#include "board/waveshare_lcd_147.h"
 #else
 #include <M5StickCPlus.h>
 #define BOARD_LED_PIN 10   // red LED, active-low
