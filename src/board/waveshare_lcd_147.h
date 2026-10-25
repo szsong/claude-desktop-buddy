@@ -14,7 +14,8 @@
 // -DBOARD_WS147_BTN_B=<gpio> (pulled up, switch to ground); it takes over the
 // BtnB role, and a double-tap still works too.
 //
-// Portrait by default; the panel is 172 wide, so text is size 1 (6x8 font).
+// Landscape by default (320x172, rotation 1; use 3 if the picture is upside-down).
+// Wide enough for the size-2 message text.
 
 #include <Arduino.h>
 #include <LovyanGFX.hpp>
@@ -23,9 +24,9 @@
 
 #define BOARD_LED_PIN 8
 #define BOARD_LED_WS2812
-#define BOARD_UI_W 172
-#define BOARD_UI_H 320
-#define BOARD_HOME_ROTATION 0
+#define BOARD_UI_W 320
+#define BOARD_UI_H 172
+#define BOARD_HOME_ROTATION 1
 #define BOARD_BUDDY_SCALE 2
 #define BOARD_CLOCK_BUDDY_SCALE 1
 #define BOARD_MSG_BUDDY_SCALE 1
