@@ -41,6 +41,10 @@ const int LED_PIN = BOARD_LED_PIN; // active-low; -1 = board has no LED
 // LOW = on. Boards with an addressable RGB LED (BOARD_LED_WS2812) glow orange.
 static void ledWrite(uint8_t level) {
 #if defined(BOARD_LED_WS2812)
+  // Only talk to the LED when the colour changes (the RMT write is slow).
+  static uint8_t last = 0xFF;
+  if (level == last) return;
+  last = level;
   rgbLedWrite(LED_PIN, level == LOW ? 48 : 0, level == LOW ? 14 : 0, 0);
 #else
   digitalWrite(LED_PIN, level);
@@ -1259,6 +1263,20 @@ void loop() {
       msgScroll = (msgScroll >= 30) ? 0 : msgScroll + 1;
     }
   }
+
+#if defined(BOARD_DEBUG_LOOP)
+  {
+    static uint32_t lastDbg = 0, loops = 0;
+    loops++;
+    if (now - lastDbg >= 2000) {
+      Serial.printf("[loop] %lu loops/s rtc %02u:%02u:%02u valid=%d clk=%d nap=%d off=%d dim=%d heap=%u\n",
+        (unsigned long)(loops * 1000 / (now - lastDbg ? now - lastDbg : 1)),
+        _clkTm.Hours, _clkTm.Minutes, _clkTm.Seconds, dataRtcValid(), 0, napping, screenOff, dimmed,
+        (unsigned)ESP.getFreeHeap());
+      lastDbg = now; loops = 0;
+    }
+  }
+#endif
 
   // blink bookkeeping
 
