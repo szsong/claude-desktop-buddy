@@ -21,9 +21,10 @@
 //   Battery     1     0    ADC through a 1:3 divider
 //   Buzzer     42     -    (C6 has an ES8311 codec instead; not wired up yet)
 //
-// The S3 pins are Waveshare's original pin group. Their example code has an
-// alternate group (PWR 36, latch 35, buzzer 33) for some board revisions, but
-// those pins belong to the octal PSRAM on the ESP32-S3R8 these boards use.
+// The S3 pins above are the V2.1 board. The first S3 revision wires PWR,
+// latch and buzzer to GPIO36, 35 and 33 instead, which are also the octal
+// PSRAM's data lines: pressing PWR with PSRAM running crashes the chip. That
+// revision (BOARD_WS_S3_V1) is built with PSRAM off so those pins are free.
 //
 // The UI was laid out for the M5StickC Plus's 135x240 panel. For now the
 // panel window is shrunk to a centred 135x240 region so every screen
@@ -44,8 +45,13 @@ namespace ws169 {
 #if defined(BOARD_WS_S3_TOUCH_LCD_169)
 constexpr int PIN_SCK = 6, PIN_MOSI = 7, PIN_DC = 4, PIN_RST = 8, PIN_CS = 5, PIN_BL = 15;
 constexpr int PIN_SCL = 10, PIN_SDA = 11;
+#if defined(BOARD_WS_S3_V1)
+constexpr int PIN_BOOT = 0, PIN_PWR = 36, PIN_BAT_EN = 35, PIN_BAT_ADC = 1;
+constexpr int PIN_BUZZER = 33;
+#else
 constexpr int PIN_BOOT = 0, PIN_PWR = 40, PIN_BAT_EN = 41, PIN_BAT_ADC = 1;
 constexpr int PIN_BUZZER = 42;
+#endif
 constexpr int PIN_TP_RST = 13;
 #else
 constexpr int PIN_SCK = 1, PIN_MOSI = 2, PIN_DC = 3, PIN_RST = 4, PIN_CS = 5, PIN_BL = 6;
