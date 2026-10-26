@@ -14,7 +14,7 @@
 // -DBOARD_WS147_BTN_B=<gpio> (pulled up, switch to ground); it takes over the
 // BtnB role, and a double-tap still works too.
 //
-// Landscape by default (320x172, rotation 1; use 3 if the picture is upside-down).
+// Landscape by default (320x172), rotation 3 (180 degrees from rotation 1).
 // Wide enough for the size-2 message text.
 
 #include <Arduino.h>
@@ -26,7 +26,7 @@
 #define BOARD_LED_WS2812
 #define BOARD_UI_W 320
 #define BOARD_UI_H 172
-#define BOARD_HOME_ROTATION 1
+#define BOARD_HOME_ROTATION 3
 #define BOARD_BUDDY_SCALE 1
 #define BOARD_PET_CORNER 1     // pet in the top-left corner, status light beside it
 #define BOARD_CORNER_W 100
