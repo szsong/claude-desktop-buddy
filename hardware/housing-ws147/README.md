@@ -30,11 +30,14 @@ PLA or PETG, 0.2 mm layers, 3+ perimeters so the walls are solid.
 - USB-C: 10.4 x 4.05 hole in the inner skin, open to the back as a slot so the
   connector slides in; a tongue on the back plate closes the slot under it.
   12.0 x 6.4 plug relief 1.0 deep in the outer skin.
-- Buttons: 10 x 4 flex tabs in the long walls, thinned to 1.0. The nub sits
-  0.10 outside a 1.4 mm button overhang (0.31 off the STEP's 1.19) and has a
-  45 degree lead-in, so the buttons slide past while you push the board in.
-- Push-in fit: the walls and nubs clear a USB-C and button overhang of 1.4
-  (`fit_out`). `board()` with `sweep=30 board_out=1.4` sweeps the board along
+- Buttons: 5.0 wide vertical flex tabs in the long walls, hinged at the bezel
+  and free at the back end, thinned to 0.8. The two long slits run vertically
+  and the U opens toward the bezel, so with the shell printed bezel-down the
+  only bridge is the 6 mm cross slit at the free end. The nub tip sits at 1.35
+  past the PCB edge (0.16 off the STEP's 1.19 button) and has a 45 degree
+  lead-in, so the buttons slide past while you push the board in.
+- Push-in fit: the walls clear a USB-C and button overhang of 1.4 (`fit_out`),
+  the nubs up to 1.3. `board()` with `sweep=30 board_out=1.3` sweeps the board along
   its push-in path; intersecting it with `shell()` comes out empty.
 - BOOT is on the left and RST on the right with the screen up and USB-C at the
   bottom (the side was read from Waveshare's photo).

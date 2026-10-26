@@ -74,12 +74,13 @@ plate_clr    = 0.15;  // plate edge to wall, per side
 snap         = 0.30;  // bead height on the plate edge
 snap_clr     = 0.10;
 
-// flex buttons cut into the long walls
-tab_len      = 10.0;  // along y, hinge end toward the top of the board
-tab_hgt      = 4.0;   // along z
-tab_t        = 1.0;   // thinned from the inside so it bends
+// flex buttons cut into the long walls: vertical tabs, hinged at the bezel
+// end so both long slits print vertically with the shell bezel-down
+tab_w        = 5.0;   // along y
+tab_t        = 0.8;   // thinned from the inside so it bends
 tab_slot     = 0.6;
-nub_gap      = 0.10;  // nub to a fit_out button tip; 0.31 to the STEP's 1.19
+nub_gap      = -0.05; // nub tip at fit_out - 0.05: 0.16 off the STEP's 1.19,
+                      // still clear of it while the board slides in
 nub_w        = 2.0;
 nub_h        = 1.6;
 labels       = true;
@@ -153,28 +154,34 @@ module window() {
 
 // U-shaped slot plus the inside thinning, for one wall.
 // side = -1 for the BOOT wall (x < 0), +1 for the RST wall.
+function nub_tip(side) = side < 0 ? -max(btn_out, fit_out) - nub_gap
+                                   : pcb_w + max(btn_out, fit_out) + nub_gap;
+function tab_face(side) = (side < 0 ? in_x0 : in_x1) + side * (wall - tab_t);
+function nub_d(side) = abs(nub_tip(side) - tab_face(side));
+// free end of the tab, just past the bottom of the nub's lead-in ramp
+function tab_z0(side) = btn_z - nub_h / 2 - nub_d(side) - 0.2;
+
+// U-shaped slot (two vertical slits joined below the free end) plus the
+// inside thinning, for one wall. side = -1 for BOOT (x < 0), +1 for RST.
 module tab_cut(side) {
-    y0 = btn_y - 2.0;               // free end just past the button
-    z0 = btn_z - tab_hgt / 2;
+    y0 = btn_y - tab_w / 2;
+    z0 = tab_z0(side);
     xo = side < 0 ? out_x0 : out_x1;
     xi = side < 0 ? in_x0  : in_x1;
-    // slot: free end + both long edges, hinge at y0 + tab_len stays solid
     translate([min(xo, xi) - 0.1, y0 - tab_slot, z0 - tab_slot])
         difference() {
-            cube([wall + 0.2, tab_len + tab_slot, tab_hgt + 2 * tab_slot]);
-            translate([-0.1, tab_slot, tab_slot]) cube([wall + 0.4, tab_len + 1, tab_hgt]);
+            cube([wall + 0.2, tab_w + 2 * tab_slot, top_in - z0 + tab_slot]);
+            translate([-0.1, tab_slot, tab_slot]) cube([wall + 0.4, tab_w, top_in - z0 + 1]);
         }
     // thin the tab from the inside
-    translate([side < 0 ? xi - (wall - tab_t) : xi - 0.01, y0 - 0.01, z0])
-        cube([wall - tab_t + 0.01, tab_len + 0.02, tab_hgt]);
+    translate([side < 0 ? xi - (wall - tab_t) : xi - 0.01, y0, z0])
+        cube([wall - tab_t + 0.01, tab_w, top_in - z0 + 0.01]);
 }
 
 module tab_add(side) {
-    xi = side < 0 ? in_x0 : in_x1;
-    xf = xi + side * (wall - tab_t);              // inner face of the thinned tab
-    tip = side < 0 ? -max(btn_out, fit_out) - nub_gap
-                   : pcb_w + max(btn_out, fit_out) + nub_gap;
-    d = abs(tip - xf);
+    xf = tab_face(side);
+    tip = nub_tip(side);
+    d = nub_d(side);
     // nub, with a 45 degree ramp on the back-facing side as a lead-in
     hull() {
         translate([min(xf, tip) - 0.01, btn_y - nub_w / 2, btn_z - nub_h / 2])
@@ -191,7 +198,7 @@ module tab_add(side) {
 module label(side, txt) {
     // engraved 0.4 deep, readable from outside with the screen facing up
     xo = side < 0 ? out_x0 : out_x1;
-    translate([xo + 0.2 * side, btn_y + 3.0, btn_z + tab_hgt / 2 + tab_slot + 1.7])
+    translate([xo + 0.2 * side, btn_y + tab_w / 2 + tab_slot + 4.6, btn_z])
         multmatrix([[0, 0, -side, 0], [side, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1]])
             linear_extrude(0.6)
                 text(txt, size = 2.2, font = "Liberation Sans:style=Bold",
