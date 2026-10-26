@@ -70,7 +70,15 @@ void buddySetCursor(int x, int y) {
 void buddySetColor(uint16_t fg)   { _tgt->setTextColor(fg, BUDDY_BG); }
 void buddyPrint(const char* s)    { _tgt->setTextSize(_scale); _tgt->print(s); }
 
+// Raw pixels for species drawn as blocks rather than text, relative to the
+// pet's anchor (BUDDY_X_CENTER and the screen row of BUDDY_Y_BASE).
+void buddyFillRect(int x, int y, int w, int h, uint16_t color) {
+  _tgt->fillRect(BUDDY_X_CENTER + x, BUDDY_Y_BASE * _scale - _yShift + y, w, h, color);
+}
+uint8_t buddyScale() { return _scale; }
+
 // ──────────────── species registry ────────────────
+extern const Species CLAWD_SPECIES;
 extern const Species CAPYBARA_SPECIES;
 extern const Species DUCK_SPECIES;
 extern const Species GOOSE_SPECIES;
@@ -91,6 +99,7 @@ extern const Species MUSHROOM_SPECIES;
 extern const Species CHONK_SPECIES;
 
 static const Species* SPECIES_TABLE[] = {
+  &CLAWD_SPECIES,
   &CAPYBARA_SPECIES, &DUCK_SPECIES, &GOOSE_SPECIES, &BLOB_SPECIES,
   &CAT_SPECIES, &DRAGON_SPECIES, &OCTOPUS_SPECIES, &OWL_SPECIES,
   &PENGUIN_SPECIES, &TURTLE_SPECIES, &SNAIL_SPECIES, &GHOST_SPECIES,

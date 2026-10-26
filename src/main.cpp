@@ -600,7 +600,7 @@ void drawInfo() {
     ln("to approve from here.");
     y += 6;
     spr.setTextColor(p.textDim, p.bg);
-    ln("18 species. Settings");
+    ln("19 species. Settings");
     ln("> ascii pet to cycle.");
 
   } else if (infoPage == 1) {
