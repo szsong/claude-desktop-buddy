@@ -14,6 +14,7 @@ import argparse, glob, json, os, socket, sys, threading, time, uuid
 
 TCP_HOST, TCP_PORT = "127.0.0.1", 47321
 RUN_TIMEOUT = 300       # a "running" session with no events for this long counts as idle
+TOOL_TIMEOUT = 1800     # same, while a tool call is in progress (hooks are silent until it ends)
 WATCH_ACTIVE = 15       # a transcript written this recently counts as running
 MAX_ENTRIES = 6          # keeps the heartbeat under the firmware 1 KB line buffer
 
@@ -56,6 +57,13 @@ class Serial:
         self.ser = self.f = None
 
     def write(self, data: bytes):
+        # The board's USB receive buffer is small: a whole heartbeat sent at once
+        # loses bytes and the line is dropped. One USB packet at a time is safe.
+        for i in range(0, len(data), 64):
+            self._write(data[i:i + 64])
+            if i + 64 < len(data): time.sleep(0.02)
+
+    def _write(self, data):
         if self.ser: self.ser.write(data)
         else:
             while data:
@@ -103,9 +111,9 @@ class State:
         self.msg = "idle"
         self.dirty = True
 
-    def touch(self, sid, state):
+    def touch(self, sid, state, in_tool=False):
         s = self.sessions.setdefault(sid, {"state": "idle", "last": 0})
-        s["state"], s["last"] = state, time.time()
+        s["state"], s["last"], s["in_tool"] = state, time.time(), in_tool
         self.dirty = True
 
     def add_entry(self, text):
@@ -114,17 +122,28 @@ class State:
         self.msg = text[:44]
         self.dirty = True
 
+    def settle(self, sid, tool=None, ti=None):
+        """Drop prompts the user already answered in the terminal. Claude Code
+        leaves the hook waiting in that case, so the hook never hangs up."""
+        for p in self.pending.values():
+            if p["sid"] == sid and (tool is None or (p["tool"] == tool and p["ti"] == ti)):
+                p["elsewhere"] = True; p["event"].set()
+
     def apply_event(self, ev):
         name, sid = ev.get("hook_event_name", ""), ev.get("session_id", "?")
         tool, ti = ev.get("tool_name", ""), ev.get("tool_input") or {}
         hhmm = time.strftime("%H:%M")
         with self.lock:
             self.hooked.add(sid); self.watched.discard(sid)
+            if name in ("PostToolUse", "PostToolUseFailure"):
+                self.settle(sid, tool, ti)          # approved: that tool ran
+            elif name in ("UserPromptSubmit", "Stop", "StopFailure", "SessionEnd"):
+                self.settle(sid)                    # the turn moved on: anything still asked is moot
             if name == "UserPromptSubmit":
                 self.touch(sid, "running")
                 self.add_entry(f"{hhmm} thinking...")
             elif name == "PreToolUse":
-                self.touch(sid, "running")
+                self.touch(sid, "running", in_tool=True)
                 self.add_entry(f"{hhmm} {tool} {describe(tool, ti)}".strip())
             elif name in ("PostToolUse", "PostToolUseFailure", "SubagentStart", "SessionStart"):
                 self.touch(sid, "running" if name != "SessionStart" else "idle")
@@ -146,7 +165,8 @@ class State:
         now = time.time()
         with self.lock:
             for sid, s in list(self.sessions.items()):
-                if s["state"] == "running" and now - s["last"] > RUN_TIMEOUT:
+                limit = TOOL_TIMEOUT if s.get("in_tool") else RUN_TIMEOUT
+                if s["state"] == "running" and now - s["last"] > limit:
                     s["state"] = "idle"; self.dirty = True
             for sid in [k for k, s in self.sessions.items() if now - s["last"] > 6 * 3600]:
                 del self.sessions[sid]
@@ -154,7 +174,8 @@ class State:
     def heartbeat(self):
         with self.lock:
             run = sum(1 for s in self.sessions.values() if s["state"] == "running")
-            wait = sum(1 for s in self.sessions.values() if s["state"] == "waiting") + len(self.pending)
+            wait = len({sid for sid, s in self.sessions.items() if s["state"] == "waiting"}
+                       | {p["sid"] for p in self.pending.values()})
             hb = {"total": len(self.sessions), "running": run, "waiting": wait,
                   "msg": ("approve: " + next(iter(self.pending.values()))["tool"]) if self.pending else self.msg,
                   "entries": list(self.entries), "tokens": 0, "tokens_today": 0}
@@ -197,12 +218,15 @@ def handle(state, conn):
             return
         pid = "req_" + uuid.uuid4().hex[:8]
         tool, ti = ev.get("tool_name", "?"), ev.get("tool_input") or {}
-        p = {"tool": tool, "hint": describe(tool, ti) or tool, "event": threading.Event(), "decision": None}
+        sid = ev.get("session_id", "?")
+        p = {"tool": tool, "ti": ti, "hint": describe(tool, ti) or tool, "event": threading.Event(),
+             "decision": None, "sid": sid}
         with state.lock:
             state.pending[pid] = p; state.dirty = True
         conn.settimeout(None)
+        start = time.time()
         log("approval requested:", tool, p["hint"][:60])
-        # Wait for the buddy, or for the hook to hang up (it gives up after its own timeout).
+        # Wait for the buddy, an answer in the terminal (settle), or the hook giving up.
         while not p["event"].wait(0.5):
             conn.setblocking(False)
             try:
@@ -214,6 +238,13 @@ def handle(state, conn):
             conn.setblocking(True)
         with state.lock:
             state.pending.pop(pid, None); state.dirty = True
+            # Answered here or in the terminal: the session isn't waiting any more,
+            # though the permission Notification marked it so. The tool runs next.
+            s = state.sessions.get(sid)
+            if s and s["state"] == "waiting": state.touch(sid, "running", in_tool=True)
+        log(f"approval closed after {time.time() - start:.1f}s:",
+            "buddy " + p["decision"] if p["decision"] else
+            "answered in the terminal" if p.get("elsewhere") else "hook gave up")
         try: conn.sendall((json.dumps({"decision": p["decision"] or "none"}) + "\n").encode())
         except OSError: pass
     except Exception as e:
