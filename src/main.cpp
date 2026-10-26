@@ -1277,9 +1277,9 @@ void loop() {
     static uint32_t lastDbg = 0, loops = 0;
     loops++;
     if (now - lastDbg >= 2000) {
-      Serial.printf("[loop] %lu loops/s rtc %02u:%02u:%02u valid=%d clk=%d nap=%d off=%d dim=%d heap=%u\n",
+      Serial.printf("[loop] %lu loops/s rtc %02u:%02u:%02u valid=%d conn=%d run=%u wait=%u tot=%u gen=%u nap=%d off=%d dim=%d heap=%u\n",
         (unsigned long)(loops * 1000 / (now - lastDbg ? now - lastDbg : 1)),
-        _clkTm.Hours, _clkTm.Minutes, _clkTm.Seconds, dataRtcValid(), 0, napping, screenOff, dimmed,
+        _clkTm.Hours, _clkTm.Minutes, _clkTm.Seconds, dataRtcValid(), tama.connected, tama.sessionsRunning, tama.sessionsWaiting, tama.sessionsTotal, tama.lineGen, napping, screenOff, dimmed,
         (unsigned)ESP.getFreeHeap());
       lastDbg = now; loops = 0;
     }
