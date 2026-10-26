@@ -25,6 +25,9 @@ transcript watcher ───────────────────► 
 2. Start the bridge and leave it running: `python3 host/buddy_bridge.py`
    (`--port /dev/cu.usbmodemXXXX` if auto-detection picks the wrong board, `--watch` with
    no directories turns the watcher off).
+   Or, on a Mac, run `python3 host/install_shortcut.py` once: it puts **Claude Buddy Bridge**
+   on the Desktop, which starts the bridge with a status window (buddy connection, sessions,
+   pending approval, log). Closing the window stops the bridge; `--remove` deletes the shortcut.
 3. Add the hooks: `python3 host/install_hooks.py` shows the change,
    `--apply` writes it to `~/.claude/settings.json` (keeping a `.bak`), `--remove` undoes it.
    Restart Claude Code sessions afterwards.

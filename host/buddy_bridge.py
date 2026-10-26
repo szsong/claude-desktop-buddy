@@ -10,7 +10,7 @@ buddy's approve/deny to the hook that is waiting for it.
 Needs Python 3.8+. Uses pyserial if it is installed, otherwise termios
 (macOS and Linux).
 """
-import argparse, glob, json, os, socket, subprocess, sys, threading, time, uuid
+import argparse, collections, glob, itertools, json, os, socket, subprocess, sys, threading, time, uuid
 
 TCP_HOST, TCP_PORT = "127.0.0.1", 47321
 RUN_TIMEOUT = 300       # a "running" session with no events for this long counts as idle
@@ -20,8 +20,14 @@ WATCH_ACTIVE = 15       # a transcript written this recently counts as running
 MAX_ENTRIES = 6          # keeps the heartbeat under the firmware 1 KB line buffer
 
 
+LOG = collections.deque(maxlen=500)   # (seq, line) for the status window
+_log_seq = itertools.count(1)
+
+
 def log(*a):
-    print(time.strftime("%H:%M:%S"), *a, file=sys.stderr, flush=True)
+    line = " ".join([time.strftime("%H:%M:%S")] + [str(x) for x in a])
+    LOG.append((next(_log_seq), line))
+    print(line, file=sys.stderr, flush=True)
 
 
 # ───────────── serial ─────────────
@@ -112,6 +118,8 @@ class State:
         self.pending = {}       # permission id -> {"tool","ti","hint","event","decision","sid"}
         self.msg = "idle"
         self.dirty = True
+        self.link = None        # serial port the buddy is open on, None while looking for it
+        self.last_hb = 0        # when the last heartbeat went out
 
     def touch(self, sid, state, in_tool=False):
         s = self.sessions.setdefault(sid, {"state": "idle", "last": 0})
@@ -218,9 +226,14 @@ def command_running(mark):
 
 
 # ───────────── hook server ─────────────
-def serve(state):
+def listen():
+    """The hook socket. Raises OSError if another bridge already has the port."""
     srv = socket.socket(); srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind((TCP_HOST, TCP_PORT)); srv.listen(8)
+    return srv
+
+
+def serve(state, srv):
     while True:
         conn, _ = srv.accept()
         threading.Thread(target=handle, args=(state, conn), daemon=True).start()
@@ -314,28 +327,24 @@ def watch(state, roots):
 
 
 # ───────────── main loop ─────────────
-def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--port", help="serial port of the buddy (default: auto-detect)")
-    ap.add_argument("--watch", nargs="*", default=["~/.claude/projects"],
-                    help="directories to watch for session transcripts (pass --watch with nothing to disable)")
-    ap.add_argument("--baud", type=int, default=115200)
-    args = ap.parse_args()
-
-    state = State()
-    threading.Thread(target=serve, args=(state,), daemon=True).start()
-    if args.watch:
-        threading.Thread(target=watch, args=(state, args.watch), daemon=True).start()
+def start(state, srv, watch_roots=("~/.claude/projects",)):
+    """Hook server and transcript watcher, in the background."""
+    threading.Thread(target=serve, args=(state, srv), daemon=True).start()
+    if watch_roots:
+        threading.Thread(target=watch, args=(state, list(watch_roots)), daemon=True).start()
     log(f"hooks connect to {TCP_HOST}:{TCP_PORT}")
 
-    port, last_hb, last_time = None, 0, 0
+
+def serial_loop(state, port=None, baud=115200):
+    """Talk to the buddy forever, reopening the port whenever it goes away."""
     while True:
-        path = args.port or find_port()
+        path = port or find_port()
         if not path:
             time.sleep(2); continue
-        ser = Serial(path, args.baud)
+        ser = Serial(path, baud)
         try:
             ser.open()
+            state.link = path
             log("buddy on", path)
             last_hb = last_time = 0
             while True:
@@ -357,13 +366,31 @@ def main():
                 if state.dirty or now - last_hb > 3:
                     state.dirty = False
                     ser.write((json.dumps(state.heartbeat(), separators=(",", ":")) + "\n").encode())
-                    last_hb = now
+                    last_hb = state.last_hb = now
                 time.sleep(0.05)
-        except (OSError, Exception) as e:
+        except Exception as e:
             log("serial problem:", e, "- retrying")
         finally:
             ser.close()
+            state.link = None
         time.sleep(2)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--port", help="serial port of the buddy (default: auto-detect)")
+    ap.add_argument("--watch", nargs="*", default=["~/.claude/projects"],
+                    help="directories to watch for session transcripts (pass --watch with nothing to disable)")
+    ap.add_argument("--baud", type=int, default=115200)
+    args = ap.parse_args()
+
+    try:
+        srv = listen()
+    except OSError:
+        sys.exit(f"Another bridge is already running ({TCP_HOST}:{TCP_PORT} is in use).")
+    state = State()
+    start(state, srv, args.watch)
+    serial_loop(state, args.port, args.baud)
 
 
 if __name__ == "__main__":
