@@ -28,6 +28,7 @@ static volatile size_t rxTail = 0;
 static BLEServer*         server = nullptr;
 static BLECharacteristic* txChar = nullptr;
 static BLECharacteristic* rxChar = nullptr;
+static volatile bool      enabled = true;
 static volatile bool      connected = false;
 static volatile bool      secure = false;
 static volatile uint32_t  passkey = 0;
@@ -57,6 +58,7 @@ class ServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer* s) override {
     connected = true;
     Serial.println("[ble] connected");
+    if (!enabled) s->disconnect(s->getConnId());   // got in just as BT was turned off
   }
   void onDisconnect(BLEServer* s) override {
     connected = false;
@@ -65,7 +67,7 @@ class ServerCallbacks : public BLEServerCallbacks {
     mtu = 23;
     Serial.println("[ble] disconnected");
     // Restart advertising so the next client can find us.
-    BLEDevice::startAdvertising();
+    if (enabled) BLEDevice::startAdvertising();
   }
 #if defined(CONFIG_NIMBLE_ENABLED)
   void onMtuChanged(BLEServer*, ble_gap_conn_desc*, uint16_t m) override {
@@ -173,10 +175,23 @@ void bleInit(const char* deviceName) {
   adv->setScanResponse(true);
   adv->setMinPreferred(0x06);   // iOS-friendly connection interval
   adv->setMaxPreferred(0x12);
-  BLEDevice::startAdvertising();
+  if (enabled) BLEDevice::startAdvertising();
   Serial.printf("[ble] advertising as '%s'\n", deviceName);
 }
 
+void bleSetEnabled(bool on) {
+  enabled = on;
+  if (!server) return;
+  if (on) {
+    BLEDevice::startAdvertising();
+  } else {
+    BLEDevice::stopAdvertising();
+    if (connected) server->disconnect(server->getConnId());
+  }
+  Serial.printf("[ble] %s\n", on ? "on" : "off");
+}
+
+bool bleEnabled()   { return enabled; }
 bool bleConnected() { return connected; }
 bool bleSecure()    { return secure; }
 // Once the link is encrypted the code is no longer needed, even if the

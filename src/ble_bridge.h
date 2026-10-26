@@ -15,6 +15,11 @@
 // snapshots) are written via bleWrite() and chunked to the negotiated MTU.
 
 void bleInit(const char* deviceName);
+// Off: stop advertising and drop the current client, so nothing can connect
+// (a bonded desktop would otherwise reconnect on its own). The stack stays
+// up because the Arduino BLE library can't reliably tear it down and restart.
+void bleSetEnabled(bool on);
+bool bleEnabled();
 bool bleConnected();
 // True once LE Secure Connections bonding has completed for the current
 // link. The NUS characteristics are encrypted-only, so in practice this

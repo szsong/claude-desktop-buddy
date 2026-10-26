@@ -164,6 +164,7 @@ inline void dataPoll(TamaState* out) {
   while (bleAvailable()) {
     int c = bleRead();
     if (c < 0) break;
+    if (!bleEnabled()) continue;   // BT turned off: drop whatever was still in flight
     _lastBtByteMs = millis();
     if (c == '\n' || c == '\r') {
       if (_btLine.len > 0) {
