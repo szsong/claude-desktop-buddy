@@ -46,12 +46,18 @@ btn_len      = 4.55;
 btn_h        = 2.20;
 btn_out      = 1.19;
 flex_out     = 0.64;               // screen flex past the USB edge
+// Sean measured the USB-C and button overhang at roughly 1.4 by eye, so the
+// push-in path clears this larger value. The STEP numbers above stay the
+// nominal rest position.
+fit_out      = 1.40;
+board_out    = 0;     // board() stand-in only: overhang to model (0 = STEP)
+sweep        = 0;     // board() stand-in only: sweep this far back (push-in check)
 
 /* [Case] */
 wall         = 1.6;
 bezel        = 1.2;   // front plate thickness
 screen_gap   = 0.10;  // glass to bezel
-side_clr     = 0.30;  // button tip to inner wall
+side_clr     = 0.30;  // button tip (at fit_out) to inner wall
 end_clr      = 0.30;  // board end / flex to inner wall
 r_out        = 2.5;   // outer corner radius
 edge_ch      = 0.8;   // chamfer on the front edge
@@ -73,13 +79,14 @@ tab_len      = 10.0;  // along y, hinge end toward the top of the board
 tab_hgt      = 4.0;   // along z
 tab_t        = 1.0;   // thinned from the inside so it bends
 tab_slot     = 0.6;
-nub_gap      = 0.15;  // nub to button tip at rest
+nub_gap      = 0.10;  // nub to a fit_out button tip; 0.31 to the STEP's 1.19
 nub_w        = 2.0;
 nub_h        = 1.6;
 labels       = true;
 
-// USB-C opening: tight hole through the inner skin,
-// plug-overmold relief through the outer skin
+// USB-C opening: tight hole through the inner skin, open to the back so
+// the connector slides in, and plug-overmold relief through the outer skin.
+// A tongue on the back plate closes the slot under the connector.
 usb_hole_w   = usb_w + 0.8;
 usb_hole_h   = usb_h + 0.8;
 usb_rel_w    = 12.0;
@@ -89,8 +96,8 @@ usb_rel_d    = 1.0;
 $fn = 48;
 
 // derived
-in_x0  = -(btn_out + side_clr);
-in_x1  = pcb_w + btn_out + side_clr;
+in_x0  = -(max(btn_out, fit_out) + side_clr);
+in_x1  = pcb_w + max(btn_out, fit_out) + side_clr;
 in_y0  = -(max(flex_out, 0) + end_clr + 0.0);
 in_y1  = pcb_l + end_clr;
 top_in = screen_z + screen_gap;            // underside of the bezel
@@ -100,6 +107,11 @@ bot_z  = plate_top - plate_t;              // back face
 out_x0 = in_x0 - wall;  out_x1 = in_x1 + wall;
 out_y0 = in_y0 - wall;  out_y1 = in_y1 + wall;
 snap_z = bot_z + plate_t / 2;
+skin   = wall - usb_rel_d;                 // inner skin of the USB wall
+
+assert(max(usb_out, fit_out) < -in_y0 + skin - 0.05,
+       "USB-C would reach the plug relief");
+assert(usb_cz - usb_hole_h / 2 > plate_top, "USB slot bottom below the plate");
 
 echo(str("outer size ", out_x1 - out_x0, " x ", out_y1 - out_y0,
          " x ", top_z - bot_z, " mm"));
@@ -159,11 +171,17 @@ module tab_cut(side) {
 
 module tab_add(side) {
     xi = side < 0 ? in_x0 : in_x1;
-    tip = side < 0 ? -btn_out - nub_gap : pcb_w + btn_out + nub_gap;
-    xs = side < 0 ? xi - (wall - tab_t) : tip;   // nub spans tab face .. tip
-    xe = side < 0 ? tip : xi + (wall - tab_t);
-    translate([xs - (side < 0 ? 0.01 : 0), btn_y - nub_w / 2, btn_z - nub_h / 2])
-        cube([xe - xs + 0.01, nub_w, nub_h]);
+    xf = xi + side * (wall - tab_t);              // inner face of the thinned tab
+    tip = side < 0 ? -max(btn_out, fit_out) - nub_gap
+                   : pcb_w + max(btn_out, fit_out) + nub_gap;
+    d = abs(tip - xf);
+    // nub, with a 45 degree ramp on the back-facing side as a lead-in
+    hull() {
+        translate([min(xf, tip) - 0.01, btn_y - nub_w / 2, btn_z - nub_h / 2])
+            cube([d + 0.02, nub_w, nub_h]);
+        translate([xf - (side < 0 ? 0.01 : 0), btn_y - nub_w / 2, btn_z - nub_h / 2 - d])
+            cube([0.01, nub_w, nub_h + d]);
+    }
     // small raised pad outside so the button is easy to find by feel
     xo = side < 0 ? out_x0 : out_x1;
     translate([xo, btn_y, btn_z]) rotate([0, 90 * side, 0])
@@ -184,6 +202,8 @@ module usb_cut() {
     // inner skin: the receptacle
     translate([usb_cx - usb_hole_w / 2, in_y0 - wall - 0.1, usb_cz - usb_hole_h / 2])
         rbox(0, 0, 0, usb_hole_w, wall + 0.2, usb_hole_h, 1.0);
+    translate([usb_cx - usb_hole_w / 2, in_y0 - skin - 0.01, bot_z - 1])
+        cube([usb_hole_w, skin + 0.02, usb_cz - bot_z + 1]);
     // outer skin: room for the plug's overmold
     translate([usb_cx - usb_rel_w / 2, out_y0 - 0.1, usb_cz - usb_rel_h / 2])
         rbox(0, 0, 0, usb_rel_w, usb_rel_d + 0.1, usb_rel_h, 2.0);
@@ -238,6 +258,9 @@ module plate() {
                       in_x1 - plate_clr, in_y1 - plate_clr, 0.5);
             for (p = posts) translate([p[0], p[1], plate_top - 0.01])
                 cylinder(d = boss_d, h = boss_h + 0.01);
+            // tongue that fills the USB slot under the connector
+            translate([usb_cx - usb_hole_w / 2 + plate_clr, in_y0 - skin + plate_clr, bot_z])
+                cube([usb_hole_w - 2 * plate_clr, skin + 0.5, plate_t]);
             // snap beads on the long edges
             intersection() {
                 for (x = [in_x0 + plate_clr, in_x1 - plate_clr])
@@ -255,18 +278,25 @@ module plate() {
 
 // ---------------- board (for checking only) ----------------
 
+module sw() {   // each board piece, swept back along -z for the push-in check
+    for (i = [0 : $children - 1]) hull() { children(i); translate([0, 0, -sweep]) children(i); }
+}
+
 module board() {
-    color("darkgreen") translate([0, 0, -pcb_t]) cube([pcb_w, pcb_l, pcb_t]);
-    color("black") translate([(pcb_w - 19.39) / 2, pcb_l - 36.28, 0])
+    color("darkgreen") sw() translate([0, 0, -pcb_t]) cube([pcb_w, pcb_l, pcb_t]);
+    color("black") sw() translate([(pcb_w - 19.39) / 2, pcb_l - 36.28, 0])
         cube([19.39, 36.28, screen_z]);
-    color("dimgray") translate([active_x0, active_y0, screen_z - 0.01])
+    color("dimgray") sw() translate([active_x0, active_y0, screen_z - 0.01])
         cube([active_w, active_l, 0.02]);
-    color("orange") translate([3, -flex_out, -pcb_t]) cube([pcb_w - 6, flex_out, pcb_t + 1]);
-    color("gold") for (p = posts) translate([p[0], p[1], post_z]) cylinder(d = post_d, h = -post_z - pcb_t);
-    color("silver") translate([usb_cx - usb_w / 2, -usb_out, usb_z]) cube([usb_w, usb_len, usb_h]);
-    color("white") for (x = [-btn_out, pcb_w - 2.0])
-        translate([x, btn_y - btn_len / 2, btn_z - btn_h / 2]) cube([btn_out + 2.0, btn_len, btn_h]);
-    color("silver") translate([pcb_w / 2 - 0.34 - 5.7, 7.84, -3.40]) cube([11.4, 5.51, 3.40 - pcb_t]);
+    color("orange") sw() translate([3, -flex_out, -pcb_t]) cube([pcb_w - 6, flex_out, pcb_t + 1]);
+    color("gold") for (p = posts) sw() translate([p[0], p[1], post_z]) cylinder(d = post_d, h = -post_z - pcb_t);
+    o = board_out;
+    color("silver") sw() translate([usb_cx - usb_w / 2, -max(usb_out, o), usb_z])
+        cube([usb_w, usb_len, usb_h]);
+    color("white") for (x = [-max(btn_out, o), pcb_w - 2.0])
+        sw() translate([x, btn_y - btn_len / 2, btn_z - btn_h / 2])
+            cube([max(btn_out, o) + 2.0, btn_len, btn_h]);
+    color("silver") sw() translate([pcb_w / 2 - 0.34 - 5.7, 7.84, -3.40]) cube([11.4, 5.51, 3.40 - pcb_t]);
 }
 
 // ---------------- output ----------------

@@ -23,14 +23,19 @@ PLA or PETG, 0.2 mm layers, 3+ perimeters so the walls are solid.
 
 ## Key dimensions (mm)
 
-- Outside: 26.5 x 40.8 x 11.7, 2.5 mm corner radius, 0.8 mm front chamfer.
+- Outside: 26.9 x 40.8 x 11.7, 2.5 mm corner radius, 0.8 mm front chamfer.
 - Walls 1.6, bezel 1.2, back plate 1.6.
 - Screen window: 17.99 x 32.95 (active area 17.39 x 32.35 plus 0.3 per side),
   chamfered 0.9 toward the viewer.
-- USB-C: 10.4 x 4.05 hole in the inner skin, 12.0 x 6.4 plug relief 1.0 deep
-  in the outer skin.
-- Buttons: 10 x 4 flex tabs in the long walls, thinned to 1.0, with a nub that
-  sits 0.15 off the button. BOOT on the left and RST on the right with the
+- USB-C: 10.4 x 4.05 hole in the inner skin, open to the back as a slot so the
+  connector slides in; a tongue on the back plate closes the slot under it.
+  12.0 x 6.4 plug relief 1.0 deep in the outer skin.
+- Buttons: 10 x 4 flex tabs in the long walls, thinned to 1.0. The nub sits
+  0.10 outside a 1.4 mm button overhang (0.31 off the STEP's 1.19) and has a
+  45 degree lead-in, so the buttons slide past while you push the board in.
+- Push-in fit: the walls and nubs clear a USB-C and button overhang of 1.4
+  (`fit_out`). `board()` with `sweep=30 board_out=1.4` sweeps the board along
+  its push-in path; intersecting it with `shell()` comes out empty. BOOT on the left and RST on the right with the
   screen up and USB-C at the bottom (the side was read from Waveshare's photo).
 
 ## Board reference (from Waveshare's STEP model and drawing)
