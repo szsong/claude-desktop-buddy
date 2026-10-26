@@ -187,6 +187,8 @@ def handle(state, conn):
             if not chunk: break
             data += chunk
         ev = json.loads(data.decode())
+        extra = ev.get("tool_name") or ev.get("notification_type") or ev.get("message") or ""
+        log("hook:", ev.get("hook_event_name"), str(extra)[:60], "session", str(ev.get("session_id", "?"))[:8])
         if ev.get("hook_event_name") != "PermissionRequest":
             state.apply_event(ev)
             conn.sendall(b'{"ok":true}\n')
@@ -220,6 +222,7 @@ def handle(state, conn):
 
 # ───────────── transcript watcher ─────────────
 def watch(state, roots):
+    logged = set()
     while True:
         now = time.time()
         seen = set()
@@ -231,6 +234,9 @@ def watch(state, roots):
                 except OSError:
                     pass
         with state.lock:
+            for sid in seen - logged:
+                log("watcher: session", sid[:20], "is active (no hooks)")
+            logged |= seen
             for sid in seen:
                 # Hooked sessions manage their own state; only add the ones we have no hooks for.
                 if sid not in state.sessions or sid in state.watched:
