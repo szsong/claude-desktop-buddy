@@ -10,7 +10,7 @@ buddy's approve/deny to the hook that is waiting for it.
 Needs Python 3.8+. Uses pyserial if it is installed, otherwise termios
 (macOS and Linux).
 """
-import argparse, glob, json, os, socket, sys, threading, time, uuid
+import argparse, glob, json, os, socket, subprocess, sys, threading, time, uuid
 
 TCP_HOST, TCP_PORT = "127.0.0.1", 47321
 RUN_TIMEOUT = 300       # a "running" session with no events for this long counts as idle
@@ -201,6 +201,22 @@ def describe(tool, ti):
     return ""
 
 
+def command_mark(ti):
+    """A piece of a Bash command that shows up in its shell's arguments once it
+    runs (Claude Code passes the command as eval '...', with quotes escaped)."""
+    first = (ti.get("command") or "").split("\n")[0]
+    mark = max(first.split("'"), key=len).strip()[:80]
+    return mark if len(mark) >= 8 else None
+
+
+def command_running(mark):
+    try:
+        ps = subprocess.run(["ps", "-A", "-ww", "-o", "command="], capture_output=True, text=True, timeout=2)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return mark in ps.stdout
+
+
 # ───────────── hook server ─────────────
 def serve(state):
     srv = socket.socket(); srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -236,7 +252,12 @@ def handle(state, conn):
         start = time.time()
         log("approval requested:", tool, p["hint"][:60])
         # Wait for the buddy, an answer in the terminal (settle), or the hook giving up.
+        # A Bash command approved in the terminal is visible as soon as it starts,
+        # long before its PostToolUse.
+        mark = command_mark(ti) if tool == "Bash" else None
         while not p["event"].wait(0.5):
+            if mark and command_running(mark):
+                p["elsewhere"] = True; break
             conn.setblocking(False)
             try:
                 if conn.recv(1) == b"": break
