@@ -35,8 +35,9 @@ PLA or PETG, 0.2 mm layers, 3+ perimeters so the walls are solid.
   45 degree lead-in, so the buttons slide past while you push the board in.
 - Push-in fit: the walls and nubs clear a USB-C and button overhang of 1.4
   (`fit_out`). `board()` with `sweep=30 board_out=1.4` sweeps the board along
-  its push-in path; intersecting it with `shell()` comes out empty. BOOT on the left and RST on the right with the
-  screen up and USB-C at the bottom (the side was read from Waveshare's photo).
+  its push-in path; intersecting it with `shell()` comes out empty.
+- BOOT is on the left and RST on the right with the screen up and USB-C at the
+  bottom (the side was read from Waveshare's photo).
 
 ## Board reference (from Waveshare's STEP model and drawing)
 
