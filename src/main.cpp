@@ -768,18 +768,26 @@ static uint8_t wrapInto(const char* in, char out[][ROW_MAX], uint8_t maxRows, ui
   return row;
 }
 
-// Status light for the corner layout: red = waiting for you, yellow = working,
-// green = idle, grey = no Claude connected.
+// Status light for the corner layout: red = needs your input, green = coding,
+// yellow = thinking, sky blue = idle, grey = no Claude connected. The desktop
+// protocol doesn't say what a running session is doing, so "coding" means a
+// new transcript line (a tool call) arrived in the last few seconds and
+// "thinking" is running with nothing new.
 static void drawStatus(bool inPrompt) {
 #if defined(BOARD_PET_CORNER)
   const Palette& p = characterPalette();
   const int x0 = BOARD_CORNER_W;
+  static uint16_t lastGen = 0;
+  static uint32_t lastLineMs = 0;
+  if (tama.lineGen != lastGen) { lastGen = tama.lineGen; lastLineMs = millis(); }
+  const bool recentLine = lastLineMs && millis() - lastLineMs < 8000;
   spr.fillRect(x0, 0, W - x0, BOARD_CORNER_H - 2, p.bg);
   uint16_t col; const char* label;
   if (!tama.connected)                              { col = p.textDim; label = "offline"; }
-  else if (inPrompt || tama.sessionsWaiting > 0)    { col = RED;       label = "waiting"; }
-  else if (tama.sessionsRunning > 0)                { col = 0xFFE0;    label = "working"; }
-  else                                              { col = GREEN;     label = "idle"; }
+  else if (inPrompt || tama.sessionsWaiting > 0)    { col = RED;       label = "need input"; }
+  else if (tama.sessionsRunning > 0 && recentLine)  { col = GREEN;     label = "coding"; }
+  else if (tama.sessionsRunning > 0)                { col = 0xFFE0;    label = "thinking"; }
+  else                                              { col = 0x867D;    label = "idle"; }
   spr.fillCircle(x0 + 22, 30, 16, col);
   spr.drawCircle(x0 + 22, 30, 17, p.textDim);
   spr.setTextSize(2);
