@@ -97,6 +97,7 @@ class State:
         self.lock = threading.Lock()
         self.sessions = {}      # id -> {"state": idle|running|waiting, "last": ts}
         self.watched = set()    # session ids seen only through the transcript watcher
+        self.hooked = set()     # session ids reported by hooks; the watcher leaves these alone
         self.entries = []       # oldest first, newest last (what the firmware displays)
         self.pending = {}       # permission id -> {"tool","hint","event","decision","sid"}
         self.msg = "idle"
@@ -118,6 +119,7 @@ class State:
         tool, ti = ev.get("tool_name", ""), ev.get("tool_input") or {}
         hhmm = time.strftime("%H:%M")
         with self.lock:
+            self.hooked.add(sid); self.watched.discard(sid)
             if name == "UserPromptSubmit":
                 self.touch(sid, "running")
                 self.add_entry(f"{hhmm} thinking...")
@@ -230,7 +232,7 @@ def watch(state, roots):
             for path in glob.glob(os.path.join(os.path.expanduser(root), "**", "*.jsonl"), recursive=True):
                 try:
                     if now - os.path.getmtime(path) < WATCH_ACTIVE:
-                        seen.add("w:" + os.path.basename(path)[:-6])
+                        seen.add(os.path.basename(path)[:-6])   # transcript name is the session id
                 except OSError:
                     pass
         with state.lock:
@@ -239,7 +241,7 @@ def watch(state, roots):
             logged |= seen
             for sid in seen:
                 # Hooked sessions manage their own state; only add the ones we have no hooks for.
-                if sid not in state.sessions or sid in state.watched:
+                if sid not in state.hooked:
                     state.watched.add(sid)
                     s = state.sessions.setdefault(sid, {"state": "idle", "last": 0})
                     if s["state"] != "running": state.dirty = True
