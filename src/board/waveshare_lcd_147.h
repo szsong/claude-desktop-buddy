@@ -255,6 +255,7 @@ class WsBoard {
   WsBeep   Beep;
 
   void begin() {
+    Serial.setRxBufferSize(2048);   // default is too small: a whole heartbeat line arrives at once
     Serial.begin(115200);
     Serial.setTxTimeoutMs(0);   // don't stall the UI when nobody reads USB serial
     Lcd.begin();

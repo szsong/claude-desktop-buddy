@@ -325,6 +325,9 @@ class WsBoard {
 
   void begin() {
     Axp.begin();                    // latch battery power first
+    // The default receive buffer is too small: a whole heartbeat line arrives
+    // at once and the overflow is dropped. Must be set before begin().
+    Serial.setRxBufferSize(2048);
     Serial.begin(115200);
     // USB serial blocks on every print once its buffer fills and the host
     // isn't reading (plugged in, no monitor open), which stalls the UI.

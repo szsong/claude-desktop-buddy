@@ -102,15 +102,17 @@ static void _applyJson(const char* line, TamaState* out) {
   JsonArray la = doc["entries"];
   if (!la.isNull()) {
     uint8_t n = 0;
+    bool changed = false;
     for (JsonVariant v : la) {
       if (n >= 8) break;
       const char* s = v.as<const char*>();
-      strncpy(out->lines[n], s ? s : "", 91); out->lines[n][91]=0;
+      if (!s) s = "";
+      // Heartbeats repeat the same lines; only a real change counts as new.
+      if (n >= out->nLines || strncmp(out->lines[n], s, 91) != 0) changed = true;
+      strncpy(out->lines[n], s, 91); out->lines[n][91]=0;
       n++;
     }
-    if (n != out->nLines || (n > 0 && strcmp(out->lines[n-1], out->msg) != 0)) {
-      out->lineGen++;
-    }
+    if (changed || n != out->nLines) out->lineGen++;
     out->nLines = n;
   }
   JsonObject pr = doc["prompt"];
