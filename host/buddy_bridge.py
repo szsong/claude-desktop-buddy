@@ -15,6 +15,7 @@ import argparse, glob, json, os, socket, sys, threading, time, uuid
 TCP_HOST, TCP_PORT = "127.0.0.1", 47321
 RUN_TIMEOUT = 300       # a "running" session with no events for this long counts as idle
 TOOL_TIMEOUT = 1800     # same, while a tool call is in progress (hooks are silent until it ends)
+STOP_GRACE = 5          # a finished turn often resumes at once (background task done, queued message)
 WATCH_ACTIVE = 15       # a transcript written this recently counts as running
 MAX_ENTRIES = 6          # keeps the heartbeat under the firmware 1 KB line buffer
 
@@ -106,14 +107,16 @@ class State:
         self.sessions = {}      # id -> {"state": idle|running|waiting, "last": ts}
         self.watched = set()    # session ids seen only through the transcript watcher
         self.hooked = set()     # session ids reported by hooks; the watcher leaves these alone
+        self.asks = set()       # session ids that send PermissionRequest (so their Notification is redundant)
         self.entries = []       # oldest first, newest last (what the firmware displays)
-        self.pending = {}       # permission id -> {"tool","hint","event","decision","sid"}
+        self.pending = {}       # permission id -> {"tool","ti","hint","event","decision","sid"}
         self.msg = "idle"
         self.dirty = True
 
     def touch(self, sid, state, in_tool=False):
         s = self.sessions.setdefault(sid, {"state": "idle", "last": 0})
         s["state"], s["last"], s["in_tool"] = state, time.time(), in_tool
+        s.pop("idle_at", None)      # any event cancels a pending Stop
         self.dirty = True
 
     def add_entry(self, text):
@@ -149,15 +152,19 @@ class State:
                 self.touch(sid, "running" if name != "SessionStart" else "idle")
             elif name in ("Stop", "SubagentStop", "StopFailure"):
                 if name != "SubagentStop":
-                    self.touch(sid, "idle")
-                    self.add_entry(f"{hhmm} done")
+                    # Stay running for a moment: if the next turn starts right away,
+                    # the buddy shouldn't flash idle. expire() finishes the Stop.
+                    self.touch(sid, "running")
+                    self.sessions[sid]["idle_at"] = (time.time() + STOP_GRACE, f"{hhmm} done")
             elif name == "SessionEnd":
                 self.sessions.pop(sid, None)
                 self.dirty = True
             elif name == "Notification":
                 nt = ev.get("notification_type", "")
                 if "permission" in nt or "permission" in str(ev.get("message", "")).lower():
-                    self.touch(sid, "waiting")
+                    # Arrives seconds late, often after the user already answered;
+                    # PermissionRequest covers it for sessions that send one.
+                    if sid not in self.asks: self.touch(sid, "waiting")
                 elif "idle" in nt:
                     self.touch(sid, "idle")
 
@@ -165,6 +172,8 @@ class State:
         now = time.time()
         with self.lock:
             for sid, s in list(self.sessions.items()):
+                if "idle_at" in s and now >= s["idle_at"][0]:
+                    s["state"] = "idle"; self.add_entry(s.pop("idle_at")[1])
                 limit = TOOL_TIMEOUT if s.get("in_tool") else RUN_TIMEOUT
                 if s["state"] == "running" and now - s["last"] > limit:
                     s["state"] = "idle"; self.dirty = True
@@ -222,7 +231,7 @@ def handle(state, conn):
         p = {"tool": tool, "ti": ti, "hint": describe(tool, ti) or tool, "event": threading.Event(),
              "decision": None, "sid": sid}
         with state.lock:
-            state.pending[pid] = p; state.dirty = True
+            state.pending[pid] = p; state.asks.add(sid); state.dirty = True
         conn.settimeout(None)
         start = time.time()
         log("approval requested:", tool, p["hint"][:60])
