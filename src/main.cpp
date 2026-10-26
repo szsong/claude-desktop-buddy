@@ -785,12 +785,21 @@ static void drawStatus(bool inPrompt) {
   else if (tama.sessionsRunning > 0 && recentLine)  { col = GREEN;     label = "coding"; }
   else if (tama.sessionsRunning > 0)                { col = 0xFFE0;    label = "thinking"; }
   else                                              { col = 0x867D;    label = "idle"; }
-  spr.fillCircle(x0 + 22, 30, 16, col);
-  spr.drawCircle(x0 + 22, 30, 17, p.textDim);
-  spr.setTextSize(2);
-  spr.setTextColor(col, p.bg);
-  spr.setCursor(x0 + 46, 22);
-  spr.print(label);
+  // The light is a box filling the strip from the pet to the right edge,
+  // inset a little from the screen edges and the rule under it: a coloured
+  // outline (thicker on the right) around black, with the label in the same
+  // colour in the clock's font. One text size for every label; size 3 is the
+  // biggest that fits "need input".
+  const int bx = x0, by = 2, bw = W - x0 - 2, bh = BOARD_CORNER_H - 6;
+  const int R = 20, EDGE = 6, EDGE_R = 20;
+  const int ix = bx + EDGE, iy = by + EDGE, iw = bw - EDGE - EDGE_R, ih = bh - 2 * EDGE;
+  spr.fillRoundRect(bx, by, bw, bh, R, col);
+  spr.fillRoundRect(ix, iy, iw, ih, R - EDGE, TFT_BLACK);
+  spr.setTextSize(3);
+  spr.setTextColor(col, TFT_BLACK);
+  spr.setTextDatum(MC_DATUM);
+  spr.drawString(label, ix + iw / 2, iy + ih / 2);
+  spr.setTextDatum(TL_DATUM);
   spr.setTextSize(1);
 #else
   (void)inPrompt;
