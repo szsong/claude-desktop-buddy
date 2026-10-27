@@ -303,7 +303,7 @@ static bool touchRead(int& ux, int& uy) {
 // A passive piezo on GPIO42 (GPIO33 on the first board revision), driven by LEDC PWM:
 // the pitch is the PWM frequency and the volume is the duty cycle. Sounds are short
 // note sequences played from loop() (sfxTick), so nothing blocks.
-enum Sfx { SFX_CLICK, SFX_TAP, SFX_ON, SFX_OFF, SFX_APPROVE, SFX_DENY, SFX_ATTENTION, SFX_REMIND, SFX_MENU, SFX_POWER, SFX_CUE };
+enum Sfx { SFX_CLICK, SFX_TAP, SFX_ON, SFX_OFF, SFX_APPROVE, SFX_DENY, SFX_ATTENTION, SFX_REMIND, SFX_MENU, SFX_POWER, SFX_CUE, SFX_DONE };
 struct Note { uint16_t hz, ms; };
 static const Note N_CLICK[] = {{2600, 10}};
 static const Note N_TAP[] = {{1900, 22}};
@@ -316,9 +316,10 @@ static const Note N_REMIND[] = {{1760, 70}, {0, 70}, {1760, 70}};
 static const Note N_MENU[] = {{1000, 40}, {1500, 60}};
 static const Note N_POWER[] = {{2000, 70}, {1400, 70}, {900, 140}};
 static const Note N_CUE[] = {{700, 45}};                                                     // "release now to deny"
+static const Note N_DONE[] = {{2349, 60}, {1760, 110}};                                      // a session finished: a short falling "ding-dong"
 static const struct { const Note* n; uint8_t len; } SFX[] = {
   {N_CLICK, 1}, {N_TAP, 1}, {N_ON, 2}, {N_OFF, 2}, {N_APPROVE, 2}, {N_DENY, 2},
-  {N_ATTENTION, 5}, {N_REMIND, 3}, {N_MENU, 2}, {N_POWER, 3}, {N_CUE, 1}};
+  {N_ATTENTION, 5}, {N_REMIND, 3}, {N_MENU, 2}, {N_POWER, 3}, {N_CUE, 1}, {N_DONE, 2}};
 // Duty cycle (of 255) per volume level: off, then four steps, roughly doubling (loudness is felt
 // logarithmically). The top is 48 (19 %), not the 50 % a square wave is loudest at in theory:
 // heard on this board, 128 was quieter than 48, so the buzzer peaks lower.
@@ -984,6 +985,9 @@ void loop() {
   static State prevSt = S_OFFLINE; static uint32_t lastChime = 0;
   if (st == S_ATTN && prevSt != S_ATTN && !data.prompt.id[0]) { sfx(SFX_ATTENTION); lastChime = millis(); }
   if (data.prompt.id[0] && strcmp(data.prompt.id, answeredId) != 0 && page == PG_NONE && promptShownMs && millis() - max(lastChime, promptShownMs) > 30000) { sfx(SFX_REMIND); lastChime = millis(); }
+  // Claude finished (working or asking -> idle): a short tone, so you know it's your turn.
+  // Coming online (offline -> idle) isn't a session finishing, so it stays quiet.
+  if (st == S_IDLE && (prevSt == S_THINK || prevSt == S_CODE || prevSt == S_ATTN)) sfx(SFX_DONE);
   prevSt = st;
 
   static View last; static bool first = true;
