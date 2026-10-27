@@ -83,7 +83,7 @@ class Window:
         else:
             self.status.config(text="Idle", fg=SKY)
 
-        self.rows["Buddy"].config(text=f"connected on {link}" if link else "not found yet: plug it in by USB",
+        self.rows["Buddy"].config(text=f"connected over {link}" if link else "not found yet: plug it in by USB, or switch it on (Bluetooth)",
                                   fg=GREEN if link else RED)
         self.rows["Sessions"].config(
             text=f"{hb['total']} total · {hb['running']} running · {hb['waiting']} waiting")
@@ -120,7 +120,7 @@ def main():
         return
     state = bb.State()
     bb.start(state, srv)
-    threading.Thread(target=bb.serial_loop, args=(state,), daemon=True).start()
+    threading.Thread(target=bb.link_loop, args=(state,), daemon=True).start()
     Window(root, state)
     root.mainloop()
 

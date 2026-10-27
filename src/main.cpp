@@ -138,11 +138,13 @@ static void beep(uint16_t freq, uint16_t dur) {
   if (settings().sound) M5.Beep.tone(freq, dur);
 }
 
+// An answer goes back the way the question came: Bluetooth if the prompt arrived there, else USB.
 static void sendCmd(const char* json) {
-  Serial.println(json);
-  size_t n = strlen(json);
-  bleWrite((const uint8_t*)json, n);
-  bleWrite((const uint8_t*)"\n", 1);
+  if (dataPromptViaBt()) {
+    size_t n = strlen(json);
+    bleWrite((const uint8_t*)json, n);
+    bleWrite((const uint8_t*)"\n", 1);
+  } else Serial.println(json);
 }
 const uint8_t INFO_PAGES = 6;
 const uint8_t INFO_PG_BUTTONS = 1;
