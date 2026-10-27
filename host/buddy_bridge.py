@@ -254,6 +254,7 @@ class State:
         self.link_kind = None   # "usb" or "ble"
         self.last_hb = 0        # when the last heartbeat went out
         self.labels = True      # tag entries with their session when several are open
+        self.ble_paused = False # Bluetooth scanning is on hold because Claude Code is idle
 
     def touch(self, sid, state, in_tool=False):
         s = self.sessions.setdefault(sid, {"state": "idle", "last": 0})
@@ -312,6 +313,12 @@ class State:
                     if sid not in self.asks: self.touch(sid, "waiting")
                 elif "idle" in nt:
                     self.touch(sid, "idle")
+
+    def busy(self):
+        """True while any session is working or waiting for you (or a prompt is
+        pending): the buddy has something to show."""
+        with self.lock:
+            return bool(self.pending) or any(s["state"] in ("running", "waiting") for s in self.sessions.values())
 
     def expire(self):
         now = time.time()
@@ -546,10 +553,13 @@ def pump(state, link, leave=None):
         time.sleep(0.05)
 
 
-def link_loop(state, port=None, baud=115200, transport="auto", ble_target=None):
+def link_loop(state, port=None, baud=115200, transport="auto", ble_target=None, scan_idle=False):
     """Reach the buddy forever: USB when it is plugged in, otherwise Bluetooth
     (when allowed and bleak is installed). Moves back to USB as soon as a cable
-    appears, and reopens whichever link goes away."""
+    appears, and reopens whichever link goes away. While Claude Code is idle the
+    Bluetooth search is paused (it keeps the radio busy), and starts again the
+    moment a session works or asks for you; scan_idle keeps it going regardless.
+    A Bluetooth link that is already up is never dropped for being idle."""
     use_usb, use_ble = transport in ("auto", "usb"), transport in ("auto", "ble")
     if use_ble and not ble_available():
         log("Bluetooth needs bleak (pip install bleak); using USB only")
@@ -561,13 +571,19 @@ def link_loop(state, port=None, baud=115200, transport="auto", ble_target=None):
     while True:
         path = (port or find_port()) if use_usb else None
         if path: link = Serial(path, baud)
-        elif use_ble: link = BleLink(ble_target)
+        elif use_ble:
+            if not scan_idle and not state.busy():
+                if not state.ble_paused: state.ble_paused = True; log("Claude Code is idle: Bluetooth scanning paused")
+                time.sleep(1); continue
+            if state.ble_paused: state.ble_paused = False; log("Claude Code is active: Bluetooth scanning")
+            link = BleLink(ble_target)
         else:
             time.sleep(2); continue
         left = False
         try:
             link.open()
             state.link, state.link_kind = link.label, link.kind
+            state.ble_paused = False
             said.clear()
             log("buddy on", link.label)
             leave = (lambda: bool(port or find_port())) if link.kind == "ble" and use_usb else None
@@ -588,6 +604,8 @@ def main():
     ap.add_argument("--port", help="serial port of the buddy (default: auto-detect)")
     ap.add_argument("--transport", choices=("auto", "usb", "ble"), default="auto",
                     help="auto: USB when plugged in, else Bluetooth (default); usb or ble: only that one")
+    ap.add_argument("--scan-idle", action="store_true",
+                    help="keep searching for the buddy over Bluetooth even while Claude Code is idle (default: pause)")
     ap.add_argument("--ble", metavar="NAME_OR_ADDRESS",
                     help="which buddy to use over Bluetooth, e.g. Claude-1234 (default: the first one found)")
     ap.add_argument("--watch", nargs="*", default=["~/.claude/projects"],
@@ -604,7 +622,7 @@ def main():
     state = State()
     state.labels = not args.no_labels
     start(state, srv, args.watch)
-    link_loop(state, args.port, args.baud, args.transport, args.ble)
+    link_loop(state, args.port, args.baud, args.transport, args.ble, args.scan_idle)
 
 
 if __name__ == "__main__":

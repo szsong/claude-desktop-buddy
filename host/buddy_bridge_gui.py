@@ -83,7 +83,9 @@ class Window:
         else:
             self.status.config(text="Idle", fg=SKY)
 
-        self.rows["Buddy"].config(text=f"connected over {link}" if link else "not found yet: plug it in by USB, or switch it on (Bluetooth)",
+        self.rows["Buddy"].config(text=f"connected over {link}" if link else
+                                       "Bluetooth scan paused (Claude Code is idle); USB is still watched" if s.ble_paused else
+                                       "not found yet: plug it in by USB, or switch it on (Bluetooth)",
                                   fg=GREEN if link else RED)
         self.rows["Sessions"].config(
             text=f"{hb['total']} total · {hb['running']} running · {hb['waiting']} waiting")
