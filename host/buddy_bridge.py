@@ -255,6 +255,7 @@ class State:
         self.last_hb = 0        # when the last heartbeat went out
         self.labels = True      # tag entries with their session when several are open
         self.ble_paused = False # Bluetooth scanning is on hold because Claude Code is idle
+        self.force_ble = False  # the user asked for Bluetooth: drop USB, scan even when idle, stay on Bluetooth
 
     def touch(self, sid, state, in_tool=False):
         s = self.sessions.setdefault(sid, {"state": "idle", "last": 0})
@@ -525,7 +526,7 @@ def start(state, srv, watch_roots=("~/.claude/projects",)):
 
 def pump(state, link, leave=None):
     """Talk to the buddy over one link until it fails (raises) or leave() says
-    another link should take over (returns)."""
+    another link should take over (returns its reason, a string)."""
     last_hb = last_time = last_check = 0
     while True:
         now = time.time()
@@ -547,9 +548,10 @@ def pump(state, link, leave=None):
             state.dirty = False
             link.write((json.dumps(state.heartbeat(), separators=(",", ":")) + "\n").encode())
             last_hb = state.last_hb = now
-        if leave and now - last_check > 2:
+        if leave and now - last_check > 0.5:
             last_check = now
-            if leave(): return
+            reason = leave()
+            if reason: return reason
         time.sleep(0.05)
 
 
@@ -559,7 +561,10 @@ def link_loop(state, port=None, baud=115200, transport="auto", ble_target=None, 
     appears, and reopens whichever link goes away. While Claude Code is idle the
     Bluetooth search is paused (it keeps the radio busy), and starts again the
     moment a session works or asks for you; scan_idle keeps it going regardless.
-    A Bluetooth link that is already up is never dropped for being idle."""
+    A Bluetooth link that is already up is never dropped for being idle.
+    state.force_ble (the window's button) overrides all of that: USB is dropped
+    and ignored, the Bluetooth search runs even while idle, and the link stays on
+    Bluetooth until the flag is cleared."""
     use_usb, use_ble = transport in ("auto", "usb"), transport in ("auto", "ble")
     if use_ble and not ble_available():
         log("Bluetooth needs bleak (pip install bleak); using USB only")
@@ -568,35 +573,42 @@ def link_loop(state, port=None, baud=115200, transport="auto", ble_target=None, 
     said = {}
     def once(key, text):
         if said.get(key) != text: said[key] = text; log(text)
+    usb_seen = [0.0, None]
+    def usb_path():                                  # the serial port scan is not free: at most every 2 s
+        if time.time() - usb_seen[0] > 2: usb_seen[:] = [time.time(), port or find_port()]
+        return usb_seen[1]
     while True:
-        path = (port or find_port()) if use_usb else None
+        forced = state.force_ble and use_ble
+        path = (port or find_port()) if use_usb and not forced else None
         if path: link = Serial(path, baud)
         elif use_ble:
-            if not scan_idle and not state.busy():
+            if not scan_idle and not forced and not state.busy():
                 if not state.ble_paused: state.ble_paused = True; log("Claude Code is idle: Bluetooth scanning paused")
                 time.sleep(1); continue
             if state.ble_paused: state.ble_paused = False; log("Claude Code is active: Bluetooth scanning")
             link = BleLink(ble_target)
         else:
             time.sleep(2); continue
-        left = False
+        reason = None
         try:
             link.open()
             state.link, state.link_kind = link.label, link.kind
             state.ble_paused = False
             said.clear()
             log("buddy on", link.label)
-            leave = (lambda: bool(port or find_port())) if link.kind == "ble" and use_usb else None
-            pump(state, link, leave)
-            left = True
-            log("USB is plugged in: switching from Bluetooth to USB")
+            if link.kind == "ble":
+                leave = lambda: ("USB is plugged in: switching from Bluetooth to USB" if use_usb and not state.force_ble and usb_path() else None)
+            else:
+                leave = (lambda: "Bluetooth was forced: switching from USB to Bluetooth" if state.force_ble and use_ble else None) if use_ble else None
+            reason = pump(state, link, leave)
+            log(reason)
         except Exception as e:
             if link.kind == "ble": once("ble", f"Bluetooth: {e} - looking again")
             else: log("serial problem:", e, "- retrying")
         finally:
             link.close()
             state.link = state.link_kind = None
-        time.sleep(0.5 if left else 2)
+        time.sleep(0.5 if reason else 2)
 
 
 def main():

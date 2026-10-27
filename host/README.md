@@ -27,7 +27,9 @@ transcript watcher ───────────────────► 
    The bridge uses USB whenever the cable is in and falls back to Bluetooth otherwise; if
    you plug the cable in while it is on Bluetooth, it moves to USB. `--transport usb|ble`
    forces one, `--scan-idle` keeps searching over Bluetooth while Claude Code is idle (by default the
-   search pauses then, and starts as soon as a session works or asks for you), and `--ble Claude-1234` picks a buddy when several are in range. The first
+   search pauses then, and starts as soon as a session works or asks for you), and `--ble Claude-1234` picks a buddy when several are in range. In the status window, **Connect over Bluetooth** drops USB and
+   searches over Bluetooth at once, even while Claude Code is idle, and stays there until you press
+   **Back to automatic**. The first
    Bluetooth connection may ask you to pair: type the 6-digit code the buddy shows.
 2. Start the bridge and leave it running: `python3 host/buddy_bridge.py`
    (`--port /dev/cu.usbmodemXXXX` if auto-detection picks the wrong board, `--watch` with

@@ -67,8 +67,17 @@ class Window:
         bottom = tk.Frame(root, padx=14, pady=10)
         bottom.pack(fill="x")
         tk.Button(bottom, text="Stop bridge", command=root.destroy).pack(side="right")
+        self.ble_button = tk.Button(bottom, text="Connect over Bluetooth", command=self.toggle_ble)
+        self.ble_button.pack(side="right", padx=(0, 8))
         tk.Label(bottom, text="Closing this window stops the bridge.", fg=GREY).pack(side="left")
         self.tick()
+
+    def toggle_ble(self):
+        """Force Bluetooth: drop USB, search now (even while Claude Code is idle) and stay on
+        Bluetooth. Pressing it again goes back to the automatic choice."""
+        s = self.state
+        s.force_ble = not s.force_ble
+        bb.log("Bluetooth forced from the window" if s.force_ble else "Back to automatic (USB first)")
 
     def tick(self):
         s = self.state
@@ -83,7 +92,11 @@ class Window:
         else:
             self.status.config(text="Idle", fg=SKY)
 
-        self.rows["Buddy"].config(text=f"connected over {link}" if link else
+        forced = s.force_ble
+        self.ble_button.config(text="Back to automatic" if forced else "Connect over Bluetooth",
+                               state="normal" if bb.ble_available() else "disabled")
+        self.rows["Buddy"].config(text=f"connected over {link}" + (" (Bluetooth forced)" if forced else "") if link else
+                                       "searching over Bluetooth (forced)…" if forced else
                                        "Bluetooth scan paused (Claude Code is idle); USB is still watched" if s.ble_paused else
                                        "not found yet: plug it in by USB, or switch it on (Bluetooth)",
                                   fg=GREEN if link else RED)
