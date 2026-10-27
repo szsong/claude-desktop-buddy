@@ -7,7 +7,7 @@ bridge with its status window (buddy_bridge_gui.py). macOS only.
 
 The app runs this Python (the one you install with), so use one that has Tk.
 """
-import os, plistlib, shutil, subprocess, sys, tempfile, tkinter as tk
+import os, platform, plistlib, shutil, subprocess, sys, tempfile, tkinter as tk
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -40,7 +40,10 @@ def main():
     os.makedirs(macos); os.makedirs(res)
     launcher = os.path.join(macos, "launch")
     with open(launcher, "w") as f:
-        f.write(f'#!/bin/sh\nexec "{sys.executable}" "{os.path.join(HERE, "buddy_bridge_gui.py")}" '
+        # "arch -arm64" picks the Apple silicon half of a universal Python. Without it macOS opens an
+        # app bundle's script as Intel under Rosetta ("Support Ending for Intel-based Apps").
+        native = "arch -arm64 " if platform.machine() == "arm64" else ""
+        f.write(f'#!/bin/sh\nexec {native}"{sys.executable}" "{os.path.join(HERE, "buddy_bridge_gui.py")}" '
                 f'> "{LOGFILE}" 2>&1\n')
     os.chmod(launcher, 0o755)
     make_icns(os.path.join(res, "clawd.icns"))
