@@ -2,10 +2,11 @@
 
 For computers where the desktop app has no **Developer → Open Hardware Buddy…**.
 The buddy firmware already understands the same messages over its USB serial
-port, so no new firmware is needed: plug the buddy in by USB and run a bridge.
+port and over Bluetooth, so no new firmware is needed: plug the buddy in by USB,
+or just switch it on, and run a bridge.
 
 ```
-Claude Code hooks ──► buddy_hook.py ──► buddy_bridge.py ──USB serial──► buddy
+Claude Code hooks ──► buddy_hook.py ──► buddy_bridge.py ──USB or Bluetooth──► buddy
 transcript watcher ───────────────────►        ▲                          │
                                                └── approve / deny ◄───────┘
 ```
@@ -21,7 +22,12 @@ transcript watcher ───────────────────► 
 
 ## Use it
 
-1. Plug the buddy in by USB. Only Python 3.8+ is needed; `pip install pyserial` is optional.
+1. Plug the buddy in by USB, or switch it on within Bluetooth range. Only Python 3.8+ is
+   needed for USB (`pip install pyserial` is optional); Bluetooth needs `pip install bleak`.
+   The bridge uses USB whenever the cable is in and falls back to Bluetooth otherwise; if
+   you plug the cable in while it is on Bluetooth, it moves to USB. `--transport usb|ble`
+   forces one, and `--ble Claude-1234` picks a buddy when several are in range. The first
+   Bluetooth connection may ask you to pair: type the 6-digit code the buddy shows.
 2. Start the bridge and leave it running: `python3 host/buddy_bridge.py`
    (`--port /dev/cu.usbmodemXXXX` if auto-detection picks the wrong board, `--watch` with
    no directories turns the watcher off).
@@ -37,6 +43,8 @@ The light on the buddy: sky blue idle, yellow thinking, green coding, red needs 
 ## Limits
 
 * Opening the USB port restarts the board once, so start the bridge before you rely on it.
+* Only one computer can hold the Bluetooth link, and not alongside the desktop app's
+  Hardware Buddy window. Close one before using the other.
 * Hooks cover Claude Code, including the sessions behind the desktop app's code tab. Whether
   Cowork runs hooks isn't known; the watcher is the fallback there.
 * The desktop protocol's token counters aren't available this way (they show 0).

@@ -43,6 +43,49 @@ pio run -e waveshare-s3-lcd-169-v1 -t upload   # ESP32-S3 board, first revision
 pio run -e waveshare-c6-lcd-169 -t upload   # ESP32-C6 board
 ```
 
+#### S3: message screen over USB or Bluetooth
+
+The S3 board also has a much smaller firmware in `s3/`: no Wi-Fi, pet or usage
+screens. A small Clawd top left, the status box ("idle", "thinking", "coding",
+"need input", "offline") top right, and the transcript below with the newest
+line highlighted. With several Claude sessions open, each line leads with its
+session's name (in that session's colour), the time and a context-usage bar.
+Under Clawd: battery (with a bolt while charging; orange under 30 %, red under
+15 %), the live link (USB or BT) and a padlock when the screen is locked.
+
+It works with `host/buddy_bridge.py` over USB or Bluetooth (USB wins while a
+computer is on the cable) and with the desktop app's Hardware Buddy window over
+Bluetooth. When Claude asks for permission the message area gets a red/green
+flashing box and the buzzer chimes: **tap to allow, hold for about a second to
+deny** (a locked screen still answers prompts). A touch that starts within 0.4 s
+of the prompt appearing is ignored, so a resting finger can't approve something
+unread.
+
+* **Menu:** hold the screen with no prompt showing. Six pill buttons (2 x 3):
+  brightness, volume (5 levels), settings (bluetooth, transcript, rotate, timers,
+  reset), help; a back pill top left and a power pill top right.
+* **Power:** hold the power key (or the pill) and confirm to power off; hold it
+  again to power on. On battery the board turns itself off after a set time with
+  no bridge ("auto off", default 10 min); on a computer's USB the screen dims
+  after a set idle time ("dim after", default 30 min). Both are under settings >
+  timers. Double-press the power key to lock or unlock the screen.
+* **Battery:** the charger has no status pin, so charging is inferred from the cell
+  voltage, and the board can't limit the charge level.
+
+Two board revisions exist, and the power key, power latch and buzzer sit on
+different pins, so pick the right environment (the wrong one gives no sound and
+a dead power key):
+
+```bash
+pio run -e waveshare-s3-lcd-169-usb -t upload      # V2.1 board
+pio run -e waveshare-s3-lcd-169-usb-v1 -t upload   # first revision
+python3 host/buddy_bridge.py
+```
+
+The Clawd faces come from [Claudinho](https://github.com/argeuthiesen/claudinho). The message font is
+Claudinho's DM Sans (SIL OFL, licence in `tools/fonts/`); `s3/fonts.h` is generated
+by `tools/gen_s3_fonts.py`.
+
 | M5StickC Plus | Waveshare 1.69 |
 | ------------- | -------------- |
 | A (front)     | BOOT           |
