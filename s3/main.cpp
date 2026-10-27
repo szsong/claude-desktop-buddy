@@ -98,6 +98,8 @@ static const uint16_t BLACK = 0, TEXT = 0xFFFF, DIM = 0x8410, HOT = 0xFA20;   //
 static const uint16_t BODY = 0xF2A3, EYE = 0x20E3;                                 // Clawd orange, eye black
 // One colour per session, in the order the bridge first saw them.
 static const uint16_t SESSION_COLOR[6] = {0x07FF, 0xF81F, 0xFD20, 0xBFE0, 0x5D9F, 0xFB56};
+static const uint16_t NAVY = 0x08C8;                // dark blue: the message area while idle
+static uint16_t textBg = BLACK;                    // what the text being drawn sits on (text is drawn opaque, so it has to match)
 static const uint16_t GREEN = 0x07E0, RED = 0xF800, YELLOW = 0xFFE0, SKY = 0x867D;
 
 // ───────────── settings (kept in flash, namespace "buddy" like the other builds) ─────────────
@@ -454,14 +456,14 @@ static uint8_t wrapInto(const char* in, char out[][ROW_MAX], uint8_t maxRows, in
 // Small text (built-in 6x8 font, the smallest there is) for the leading column of a row.
 static void drawSmall(const char* t, int x, int y, uint16_t color, int size = 1) {
   useFont(nullptr); spr.setTextSize(size);
-  spr.setTextColor(color, BLACK); spr.setTextDatum(top_left); spr.drawString(t, x, y);
+  spr.setTextColor(color, textBg); spr.setTextDatum(top_left); spr.drawString(t, x, y);
   spr.setTextSize(1);
   useFont(FONT_MSG);
 }
 
 // A row of text starting at x.
 static void textAt(int x, int y, const char* s, uint16_t color) {
-  spr.setTextColor(color, BLACK); spr.setTextDatum(top_left); spr.drawString(s, x, y);
+  spr.setTextColor(color, textBg); spr.setTextDatum(top_left); spr.drawString(s, x, y);
 }
 
 // Context bar: a dark track with the used share filled in green, amber from 70 %, red from 90 %.
@@ -564,7 +566,7 @@ static void drawApproval(const View& v) {
   if (v.sent) textAt(padX + ins, fy, "sent...", DIM);
   else {
     textAt(padX + ins, fy, "tap: approve", GREEN);
-    spr.setTextColor(HOT, BLACK); spr.setTextDatum(top_right); spr.drawString("hold: deny", W - padX - ins, fy);
+    spr.setTextColor(HOT, textBg); spr.setTextDatum(top_right); spr.drawString("hold: deny", W - padX - ins, fy);
   }
 }
 
@@ -783,6 +785,7 @@ static void drawPasskey(uint32_t pk) {
 
 static void draw(const View& v) {
   spr.fillScreen(BLACK);
+  textBg = BLACK;
   useFont(nullptr);
   spr.setTextSize(1);
   useFont(FONT_MSG);
@@ -809,6 +812,7 @@ static void draw(const View& v) {
     spr.setTextSize(1);
     useFont(FONT_MSG);
     layoutMessages(v.flash);
+    if (v.state == S_IDLE) { spr.fillRect(0, CORNER_H, W, H - CORNER_H, NAVY); textBg = NAVY; }   // idle: dark blue message area
     if (v.flash) {                                   // action needed: a box around the message block, flashing red and green
       const uint16_t c = v.flash == 1 ? RED : GREEN;
       spr.fillRoundRect(BOX_X, BOX_Y, BOX_W, BOX_H, BOX_R, c);
