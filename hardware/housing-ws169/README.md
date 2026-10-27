@@ -6,46 +6,46 @@ Parametric OpenSCAD source: `buddy_housing_169.scad` (glass outline in
 
 ![overview](preview/overview.png)
 
-## Parts
+## Part
 
-| Part | File | Print |
-|---|---|---|
-| Tub (floor with battery bay, walls, USB-C opening, RST/BOOT/PWR flex buttons, glass ledge) | `stl/buddy169_tub.stl` | Floor down, as exported. No supports. |
-| Lid (bezel and screen window, skirt with snap beads) | `stl/buddy169_lid.stl` | Face down, as exported. No supports. |
-
-PLA or PETG, 0.2 mm layers (0.1-0.12 helps the 0.75 mm skirt), 3+ perimeters.
+One piece, `stl/buddy169_case.stl`. Print floor down, as exported, no
+supports. PLA or PETG, 0.2 mm layers, 3+ perimeters. PETG is kinder to the
+press-fit lips and the flex buttons.
 
 ## Assembly
 
-1. Stick the battery into the bay on the tub floor (thin double-sided foam
-   tape), wires at the PWR-button end.
-2. Plug the battery into the board's BAT connector. Tuck the spare lead
+1. Stick the battery between its three floor tabs with thin foam tape (up to
+   0.3 mm), wires at the PWR-button end.
+2. Plug the battery into the board's BAT connector and tuck the spare lead
    beside the battery, toward the USB-C side.
-3. Drop the board in screen up. The cover glass sits on a ledge all round.
-4. Press the lid on until the four snap beads click. The notch in the seam at
-   the RTC end lets you pry it off again.
+3. Press the board in screen up. The cover glass clicks past eight short
+   lips at the top of the walls and sits on a ledge.
+4. To take it out, put a spudger in the notch at the RTC end (opposite the
+   battery wires) and lever the glass up past the lips.
 
 ## Key dimensions (mm)
 
-- Outside: 37.0 x 45.0 x 14.6. Front edge chamfer 0.8, back 0.6.
-- Wall 1.8 outside the glass pocket (0.9 tub lip + 0.15 gap + 0.75 lid skirt).
-  Bezel 1.2, floor 1.4.
-- Screen window: 28.77 x 33.43 (active area 27.97 x 32.63 plus 0.4 per side),
-  R5.4 corners, chamfered 0.9 toward the viewer. The lid underside follows the
-  glass's rounded front edge, 0.05 off it.
-- Glass pocket: the glass outline sliced from the STEP plus 0.15. The glass
-  rests on a ledge at the back of the glass (0.7 to 1.5 wide).
-- Battery bay: low ribs on the USB side and the RTC end, the button-side
-  wall on the third side, wire end open. 3.3 deep (0.3 spare for foam or
-  swelling); the battery's front face is 0.2 behind the tallest part under
-  it (the LCD flex connector). The battery spans x -4.4..15.6, which is
-  about 2.5 mm further toward the buttons than in the photo: the BAT
-  connector's mouth faces the middle of the board, so the plug and its wires
-  need room beside the battery.
+- Outside: 36.4 x 44.4 x 13.3. Front and back edge chamfers 0.6. The walls
+  are flush with the flat front of the glass.
+- Walls 1.6 outside the glass pocket, floor 1.4.
+- Glass pocket: the glass outline sliced from the STEP plus 0.05. The glass
+  rests on a ledge (0.7 to 1.5 wide) at its back face.
+- Press-fit lips: eight 5 mm long lips, two per side, reaching 0.25 past
+  the glass outline. The flat underside (z 3.35) hooks over the glass's rounded
+  front edge, 0.1 clear of it at rest; the top is a 45 degree lead-in.
+- Battery: placed as in Sean's photo, x -8.1..12.6, y -17.2..16.3
+  (20.7 x 33.5 measured off the photo, cell plus taped protection board).
+  Its USB-C-side edge rests against the USB-C and RTC connectors. Three floor
+  tabs, 1.5 thick and 1.6 tall, 0.3 off the battery, hold the other three
+  edges: one on the button side (11.2 long, a third of the battery's
+  length) and one on each end (6.9 long, a third of its width). The
+  battery's front face clears the parts under it by 0.2; 0.3 spare depth
+  behind it for foam tape.
 - USB-C: 12.0 x 6.4 plug relief cut in until it is 0.35 from the receptacle
   face, and a slot through the glass ledge so the receptacle drops in.
-- Buttons: three 5.0 wide flex tabs in the `+x` wall, hinged at the floor and
-  free toward the screen, thinned to 0.8. Nub tips sit 0.15 off each button,
+- Buttons: three 5.0 wide flex tabs in the `+x` wall, hinged at the floor,
+  free toward the screen with R1.5 rounded corners, thinned to 0.8. Domed
+  finger bumps 4.0 across, 0.8 proud. Nub tips sit 0.15 off each button,
   with a 45 degree lead-in on the screen side. Labels engraved on the back.
 
 ## Board reference (Waveshare STEP `ESP32-S3-Touch-LCD-1_69.stp`)
@@ -65,15 +65,12 @@ the viewer, USB-C on `-x`, buttons on `+x`, LCD flex at `-y`.
 
 `check/` holds the scripts used to check the design against the STEP
 (trimesh, OCP): `step_export.py` meshes the STEP, `fitcheck.py` tests the
-board in its rest position and swept 0.5 to 18 mm up along the drop-in path
-against the tub and lid, plus the battery box. All came out clear.
-`contact.py` confirms the glass sits on the ledge, the lid is 0.05 off the
-glass, and the nubs touch the buttons after 0.15 of travel.
+board at rest and swept up to 14 mm along the press-in path, the battery in
+its tabs, the glass on its ledge and under the lips, and the nub gaps.
 
 ## Rebuilding
 
 ```sh
-openscad -D 'part="tub"' -o stl/buddy169_tub.stl buddy_housing_169.scad
-openscad -D 'part="lid"' -o stl/buddy169_lid.stl buddy_housing_169.scad
+openscad -D 'part="case"' -o stl/buddy169_case.stl buddy_housing_169.scad
 openscad -D 'part="exploded"' buddy_housing_169.scad   # preview with a board stand-in
 ```
