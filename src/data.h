@@ -30,6 +30,10 @@ struct TamaState {
 
 static uint32_t _lastLiveMs = 0;
 static uint32_t _lastBtByteMs = 0;   // hasClient() lies; track actual BT traffic
+static uint32_t _lastUsbLineMs = 0;  // USB wins: while its lines keep coming, Bluetooth heartbeats are ignored
+static bool     _lineFromBt = false; // which link the line being applied arrived on
+static bool     _promptFromBt = false; // which link the pending prompt came from: the answer goes back there
+inline bool dataPromptViaBt() { return _promptFromBt; }
 static bool     _demoMode   = false;
 static uint8_t  _demoIdx    = 0;
 static uint32_t _demoNext   = 0;
@@ -102,15 +106,17 @@ static void _applyJson(const char* line, TamaState* out) {
   JsonArray la = doc["entries"];
   if (!la.isNull()) {
     uint8_t n = 0;
+    bool changed = false;
     for (JsonVariant v : la) {
       if (n >= 8) break;
       const char* s = v.as<const char*>();
-      strncpy(out->lines[n], s ? s : "", 91); out->lines[n][91]=0;
+      if (!s) s = "";
+      // Heartbeats repeat the same lines; only a real change counts as new.
+      if (n >= out->nLines || strncmp(out->lines[n], s, 91) != 0) changed = true;
+      strncpy(out->lines[n], s, 91); out->lines[n][91]=0;
       n++;
     }
-    if (n != out->nLines || (n > 0 && strcmp(out->lines[n-1], out->msg) != 0)) {
-      out->lineGen++;
-    }
+    if (changed || n != out->nLines) out->lineGen++;
     out->nLines = n;
   }
   JsonObject pr = doc["prompt"];
@@ -124,17 +130,19 @@ static void _applyJson(const char* line, TamaState* out) {
   }
   out->lastUpdated = millis();
   _lastLiveMs = millis();
+  if (out->promptId[0]) _promptFromBt = _lineFromBt;
 }
 
 template<size_t N>
 struct _LineBuf {
   char buf[N];
   uint16_t len = 0;
+  bool isUsb = false;
   void feed(Stream& s, TamaState* out) {
     while (s.available()) {
       char c = s.read();
       if (c == '\n' || c == '\r') {
-        if (len > 0) { buf[len]=0; if (buf[0]=='{') _applyJson(buf, out); len=0; }
+        if (len > 0) { buf[len]=0; if (buf[0]=='{') { if (isUsb) _lastUsbLineMs = millis(); _applyJson(buf, out); } len=0; }
       } else if (len < N-1) {
         buf[len++] = c;
       }
@@ -143,6 +151,7 @@ struct _LineBuf {
 };
 
 static _LineBuf<1024> _usbLine, _btLine;
+static bool _usbLineInit = (_usbLine.isUsb = true);
 
 inline void dataPoll(TamaState* out) {
   uint32_t now = millis();
@@ -157,16 +166,21 @@ inline void dataPoll(TamaState* out) {
     return;
   }
 
+  _lineFromBt = false;
   _usbLine.feed(Serial, out);
   // BLE ring buffer is drained manually since it's not a Stream.
   while (bleAvailable()) {
     int c = bleRead();
     if (c < 0) break;
+    if (!bleEnabled()) continue;   // BT turned off: drop whatever was still in flight
     _lastBtByteMs = millis();
     if (c == '\n' || c == '\r') {
       if (_btLine.len > 0) {
         _btLine.buf[_btLine.len] = 0;
-        if (_btLine.buf[0] == '{') _applyJson(_btLine.buf, out);
+        // USB wins: a Bluetooth heartbeat is dropped while the cable is talking. Commands
+        // (cmd) still go through, so the desktop app's window keeps working.
+        bool usbLive = _lastUsbLineMs && millis() - _lastUsbLineMs < 10000;
+        if (_btLine.buf[0] == '{' && (!usbLive || strstr(_btLine.buf, "\"cmd\""))) { _lineFromBt = true; _applyJson(_btLine.buf, out); _lineFromBt = false; }
         _btLine.len = 0;
       }
     } else if (_btLine.len < sizeof(_btLine.buf) - 1) {

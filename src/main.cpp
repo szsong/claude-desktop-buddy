@@ -1,9 +1,10 @@
-#include <M5StickCPlus.h>
+#include "hw.h"
 #include <LittleFS.h>
 #include <stdarg.h>
 #include "ble_bridge.h"
 #include "data.h"
 #include "buddy.h"
+#include "buddy_common.h"
 
 TFT_eSprite spr = TFT_eSprite(&M5.Lcd);
 
@@ -20,10 +21,35 @@ static void startBt() {
 
 #include "character.h"
 #include "stats.h"
-const int W = 135, H = 240;
+const int W = BOARD_UI_W, H = BOARD_UI_H;
+// Text columns across the screen at size 1 (6px glyphs, 4px margins):
+// 21 on the M5StickC Plus, 38 on 240px-wide boards.
+const int COLS = (W - 8) / 6;
+const int ROW_MAX = 48;          // wrap buffer width, >= COLS + 1
+// Transcript and approval text: size 2 on 240px-wide screens so it reads
+// at arm's length; MCOLS is the matching column count (21 / 19).
+const int TS = W >= 200 ? 2 : 1;
+#if defined(BOARD_PET_CORNER)
+#define BOARD_PET_CORNER_ON 1
+#else
+#define BOARD_PET_CORNER_ON 0
+#endif
+const int MCOLS = (W - 8) / (6 * TS);
 const int CX = W / 2;
 const int CY_BASE = 120;
-const int LED_PIN = 10;          // red LED, active-low
+const int LED_PIN = BOARD_LED_PIN; // active-low; -1 = board has no LED
+// LOW = on. Boards with an addressable RGB LED (BOARD_LED_WS2812) glow orange.
+static void ledWrite(uint8_t level) {
+#if defined(BOARD_LED_WS2812)
+  // Only talk to the LED when the colour changes (the RMT write is slow).
+  static uint8_t last = 0xFF;
+  if (level == last) return;
+  last = level;
+  rgbLedWrite(LED_PIN, level == LOW ? 48 : 0, level == LOW ? 14 : 0, 0);
+#else
+  digitalWrite(LED_PIN, level);
+#endif
+}
 
 // Colors used across multiple UI surfaces
 const uint16_t HOT   = 0xFA20;   // red-orange: warnings, impatience, deny
@@ -112,11 +138,13 @@ static void beep(uint16_t freq, uint16_t dur) {
   if (settings().sound) M5.Beep.tone(freq, dur);
 }
 
+// An answer goes back the way the question came: Bluetooth if the prompt arrived there, else USB.
 static void sendCmd(const char* json) {
-  Serial.println(json);
-  size_t n = strlen(json);
-  bleWrite((const uint8_t*)json, n);
-  bleWrite((const uint8_t*)"\n", 1);
+  if (dataPromptViaBt()) {
+    size_t n = strlen(json);
+    bleWrite((const uint8_t*)json, n);
+    bleWrite((const uint8_t*)"\n", 1);
+  } else Serial.println(json);
 }
 const uint8_t INFO_PAGES = 6;
 const uint8_t INFO_PG_BUTTONS = 1;
@@ -158,11 +186,8 @@ static void applySetting(uint8_t idx) {
       return;
     case 1: s.sound = !s.sound; break;
     case 2:
-      // BT toggle is a stored preference only — BLE stays live. Turning
-      // BLE off cleanly would require tearing down the BLE stack which
-      // the Arduino BLE library doesn't do reliably. If we need a
-      // hard-off someday, stop advertising via BLEDevice::getAdvertising().
       s.bt = !s.bt;
+      bleSetEnabled(s.bt);   // off = not advertising and nobody connected
       break;
     case 3: s.wifi = !s.wifi; break;   // stored only — no WiFi stack linked
     case 4: s.led = !s.led; break;
@@ -362,6 +387,7 @@ static void clockRefreshRtc() {
 }
 
 static void clockUpdateOrient() {
+  if (W > H) { clockOrient = 0; return; }   // already landscape: one clock layout
   float ax, ay, az;
   M5.Imu.getAccelData(&ax, &ay, &az);
   uint8_t lock = settings().clockRot;
@@ -418,13 +444,29 @@ static void drawClock() {
 
   if (clockOrient == 0) {
     paintedOrient = 0;
-    // Bottom half — buddy naturally lives at y=0..82, GIF peeks at top
-    // via peek mode. Clearing from 90 leaves both untouched.
-    spr.fillRect(0, 90, W, H - 90, p.bg);
+    // Bottom part — the buddy shrinks to clock size (y=0..82 at 1x,
+    // ..~130 at 2x on taller screens), GIF peeks at top via peek mode.
+    #if defined(BOARD_PET_CORNER)
+    const int top = BOARD_CORNER_H;
+#else
+    const int top = BOARD_CLOCK_BUDDY_SCALE > 1 ? 140 : 90;
+#endif
+    spr.fillRect(0, top, W, H - top, p.bg);
     spr.setTextDatum(MC_DATUM);
-    spr.setTextSize(4); spr.setTextColor(p.text, p.bg);    spr.drawString(hm, CX, 140);
-    spr.setTextSize(2); spr.setTextColor(p.textDim, p.bg); spr.drawString(ss, CX, 175);
-    spr.setTextSize(1);                                     spr.drawString(dl, CX, 200);
+    if (W > H) {
+      // Landscape: time big under the pet, seconds and date on one row.
+      spr.setTextSize(6); spr.setTextColor(p.text, p.bg);
+      const int hmY = top + (H - top) * 35 / 100, rowY = H - 35;
+      spr.drawString(hm, CX, hmY);
+      spr.setTextSize(2); spr.setTextColor(p.textDim, p.bg);
+      spr.drawString(ss, CX - 60, rowY);
+      spr.drawString(dl, CX + 40, rowY);
+    } else {
+      spr.setTextSize(W >= 200 ? 6 : 4); spr.setTextColor(p.text, p.bg);
+      spr.drawString(hm, CX, H - 100);
+      spr.setTextSize(2); spr.setTextColor(p.textDim, p.bg); spr.drawString(ss, CX, H - 55);
+      spr.setTextSize(W >= 200 ? 2 : 1);                      spr.drawString(dl, CX, H - 30);
+    }
     spr.setTextDatum(TL_DATUM);
     return;
   }
@@ -444,9 +486,11 @@ static void drawClock() {
     char wdl[12]; snprintf(wdl, sizeof(wdl), "%s %s %02u", DOW[clockDow()], MON[mi], _clkDt.Date);
     char ssl[3]; snprintf(ssl, sizeof(ssl), "%02u", _clkTm.Seconds);
     M5.Lcd.setTextDatum(MC_DATUM);
-    M5.Lcd.setTextSize(3); M5.Lcd.setTextColor(p.text, p.bg);    M5.Lcd.drawString(hm, 170, 42);
-    M5.Lcd.setTextSize(2); M5.Lcd.setTextColor(p.textDim, p.bg); M5.Lcd.drawString(ssl, 170, 72);
-                                                                  M5.Lcd.drawString(wdl, 170, 102);
+    // Landscape is H wide and W tall; text sits right of the pet.
+    const int tx = H - 70, ty = W / 2;
+    M5.Lcd.setTextSize(3); M5.Lcd.setTextColor(p.text, p.bg);    M5.Lcd.drawString(hm, tx, ty - 25);
+    M5.Lcd.setTextSize(2); M5.Lcd.setTextColor(p.textDim, p.bg); M5.Lcd.drawString(ssl, tx, ty + 5);
+                                                                  M5.Lcd.drawString(wdl, tx, ty + 35);
     M5.Lcd.setTextDatum(TL_DATUM);
     M5.Lcd.setTextSize(1);
   }
@@ -459,10 +503,10 @@ static void drawClock() {
     lastPetTick = millis();
     if (buddyMode) {
       // ASCII glyphs don't self-clear; wipe the box each tick. Species
-      // hardcode BUDDY_X_CENTER=67 / BUDDY_Y_OVERLAY=6 for particles so
+      // hardcode BUDDY_X_CENTER / BUDDY_Y_OVERLAY=6 for particles so
       // keep portrait coords and just swap the surface — pet lands
       // upper-left of landscape, which is where we want it anyway.
-      M5.Lcd.fillRect(0, 0, 115, 90, p.bg);
+      M5.Lcd.fillRect(BUDDY_X_CENTER - 67, 0, 115, 90, p.bg);
       buddyRenderTo(&M5.Lcd, activeState);
     } else {
       // Full-frame GIFs paint every pixel (transparent → pal.bg), so a
@@ -470,10 +514,10 @@ static void drawClock() {
       // last scanline. The entry fillScreen on paintedOrient change
       // already covers the surround.
       characterSetState(activeState);
-      characterRenderTo(&M5.Lcd, 57, 45);
+      characterRenderTo(&M5.Lcd, BUDDY_X_CENTER - 10, 45);
     }
   }
-  M5.Lcd.setRotation(0);
+  M5.Lcd.setRotation(BOARD_HOME_ROTATION);
 }
 
 PersonaState derive(const TamaState& s) {
@@ -520,12 +564,13 @@ void drawPasskey() {
   spr.fillSprite(p.bg);
   spr.setTextSize(1);
   spr.setTextColor(p.textDim, p.bg);
-  spr.setCursor(8, 56);  spr.print("BLUETOOTH PAIRING");
-  spr.setCursor(8, 184); spr.print("enter on desktop:");
-  spr.setTextSize(3);
+  spr.setCursor(8, H * 56 / 240);  spr.print("BLUETOOTH PAIRING");
+  spr.setCursor(8, H * 184 / 240); spr.print("enter on desktop:");
+  const int sz = W >= 200 ? 5 : 3;
+  spr.setTextSize(sz);
   spr.setTextColor(p.text, p.bg);
   char b[8]; snprintf(b, sizeof(b), "%06lu", (unsigned long)blePasskey());
-  spr.setCursor((W - 18 * 6) / 2, 110);
+  spr.setCursor((W - 6 * sz * 6) / 2, H / 2 - 4 * sz);
   spr.print(b);
 }
 
@@ -557,7 +602,7 @@ void drawInfo() {
     ln("to approve from here.");
     y += 6;
     spr.setTextColor(p.textDim, p.bg);
-    ln("18 species. Settings");
+    ln("19 species. Settings");
     ln("> ascii pet to cycle.");
 
   } else if (infoPage == 1) {
@@ -690,7 +735,7 @@ void drawInfo() {
 
 // Greedy word-wrap into fixed-width rows. Continuation rows get a leading
 // space. Returns number of rows written.
-static uint8_t wrapInto(const char* in, char out[][24], uint8_t maxRows, uint8_t width) {
+static uint8_t wrapInto(const char* in, char out[][ROW_MAX], uint8_t maxRows, uint8_t width) {
   uint8_t row = 0, col = 0;
   const char* p = in;
   while (*p && row < maxRows) {
@@ -722,49 +767,108 @@ static uint8_t wrapInto(const char* in, char out[][24], uint8_t maxRows, uint8_t
   return row;
 }
 
+// Status light for the corner layout: red = needs your input, green = coding,
+// yellow = thinking, sky blue = idle, grey = no Claude connected. The desktop
+// protocol doesn't say what a running session is doing, so "coding" means a
+// new transcript line (a tool call) arrived in the last few seconds and
+// "thinking" is running with nothing new.
+static void drawStatus(bool inPrompt) {
+#if defined(BOARD_PET_CORNER)
+  const Palette& p = characterPalette();
+  const int x0 = BOARD_CORNER_W;
+  static uint16_t lastGen = 0;
+  static uint32_t lastLineMs = 0;
+  if (tama.lineGen != lastGen) { lastGen = tama.lineGen; lastLineMs = millis(); }
+  const bool recentLine = lastLineMs && millis() - lastLineMs < 8000;
+  spr.fillRect(x0, 0, W - x0, BOARD_CORNER_H - 2, p.bg);
+  uint16_t col; const char* label;
+  if (!tama.connected)                              { col = p.textDim; label = "offline"; }
+  else if (inPrompt || tama.sessionsWaiting > 0)    { col = RED;       label = "need input"; }
+  else if (tama.sessionsRunning > 0 && recentLine)  { col = GREEN;     label = "coding"; }
+  else if (tama.sessionsRunning > 0)                { col = 0xFFE0;    label = "thinking"; }
+  else                                              { col = 0x867D;    label = "idle"; }
+  // The light is a box filling the strip from the pet to the right edge,
+  // inset a little from the screen edges and the rule under it: a coloured
+  // outline (thicker on the right) around black, with the label in the same
+  // colour in the clock's font. One text size for every label; size 3 is the
+  // biggest that fits "need input".
+  const int bx = x0, by = 2, bw = W - x0 - 2, bh = BOARD_CORNER_H - 6;
+  const int R = 20, EDGE = 6, EDGE_R = 20;
+  const int ix = bx + EDGE, iy = by + EDGE, iw = bw - EDGE - EDGE_R, ih = bh - 2 * EDGE;
+  spr.fillRoundRect(bx, by, bw, bh, R, col);
+  spr.fillRoundRect(ix, iy, iw, ih, R - EDGE, TFT_BLACK);
+  spr.setTextSize(3);
+  spr.setTextColor(col, TFT_BLACK);
+  spr.setTextDatum(MC_DATUM);
+  spr.drawString(label, ix + iw / 2, iy + ih / 2);
+  spr.setTextDatum(TL_DATUM);
+  spr.setTextSize(1);
+#else
+  (void)inPrompt;
+#endif
+}
+
 static void drawApproval() {
   const Palette& p = characterPalette();
-  const int AREA = 78;
-  spr.fillRect(0, H - AREA, W, AREA, p.bg);
-  spr.drawFastHLine(0, H - AREA, W, p.textDim);
+  // Layout in units of the message text height (8px at size 1).
+#if defined(BOARD_PET_CORNER)
+  const int AREA = H - BOARD_CORNER_H;
+#else
+  const int AREA = TS > 1 ? H - 90 : 78;
+#endif
+  const int y0 = H - AREA;
+  spr.fillRect(0, y0, W, AREA, p.bg);
+  spr.drawFastHLine(0, y0, W, p.textDim);
 
-  spr.setTextSize(1);
+  spr.setTextSize(TS);
   spr.setTextColor(p.textDim, p.bg);
-  spr.setCursor(4, H - AREA + 4);
+  spr.setCursor(4, y0 + 4);
   uint32_t waited = (millis() - promptArrivedMs) / 1000;
   if (waited >= 10) spr.setTextColor(HOT, p.bg);
   spr.printf("approve? %lus", (unsigned long)waited);
 
-  // Size 2 only if it fits one line (~10 chars at 12px on 135px screen)
+  // Double size only if it fits one line
   int toolLen = strlen(tama.promptTool);
+#if defined(BOARD_PET_CORNER)
+  bool bigTool = false;   // not enough height for a double-size tool name
+#else
+  bool bigTool = toolLen <= (W - 8) / (12 * TS);
+#endif
   spr.setTextColor(p.text, p.bg);
-  spr.setTextSize(toolLen <= 10 ? 2 : 1);
-  spr.setCursor(4, H - AREA + (toolLen <= 10 ? 14 : 18));
+  spr.setTextSize(bigTool ? 2 * TS : TS);
+  spr.setCursor(4, y0 + 4 + (bigTool ? 10 : 14) * TS);
   spr.print(tama.promptTool);
-  spr.setTextSize(1);
+  spr.setTextSize(TS);
 
-  // Hint wraps at ~21 chars to two lines under the tool name
+  // Hint wraps at MCOLS chars to two lines under the tool name
   spr.setTextColor(p.textDim, p.bg);
   int hlen = strlen(tama.promptHint);
-  spr.setCursor(4, H - AREA + 34);
-  spr.printf("%.21s", tama.promptHint);
-  if (hlen > 21) {
-    spr.setCursor(4, H - AREA + 42);
-    spr.printf("%.21s", tama.promptHint + 21);
+#if defined(BOARD_PET_CORNER)
+  const int hintTop = 24;
+  const int hintRows = (H - 4 - 8 * TS - (y0 + 4 + hintTop * TS)) / (8 * TS);
+#else
+  const int hintTop = 30;
+  const int hintRows = TS > 1 ? 5 : 2;
+#endif
+  for (int r = 0; r < hintRows && r * MCOLS < hlen; r++) {
+    spr.setCursor(4, y0 + 4 + (hintTop + 8 * r) * TS);
+    spr.printf("%.*s", MCOLS, tama.promptHint + r * MCOLS);
   }
 
+  const int fy = H - 4 - 8 * TS;
   if (responseSent) {
     spr.setTextColor(p.textDim, p.bg);
-    spr.setCursor(4, H - 12);
+    spr.setCursor(4, fy);
     spr.print("sent...");
   } else {
     spr.setTextColor(GREEN, p.bg);
-    spr.setCursor(4, H - 12);
+    spr.setCursor(4, fy);
     spr.print("A: approve");
     spr.setTextColor(HOT, p.bg);
-    spr.setCursor(W - 48, H - 12);
+    spr.setCursor(W - 4 - 7 * 6 * TS, fy);
     spr.print("B: deny");
   }
+  spr.setTextSize(1);
 }
 
 static void tinyHeart(int x, int y, bool filled, uint16_t col) {
@@ -890,23 +994,41 @@ void drawPet() {
 void drawHUD() {
   if (tama.promptId[0]) { drawApproval(); return; }
   const Palette& p = characterPalette();
-  const int SHOW = 3, LH = 8, WIDTH = 21;
+  // Transcript rows: 3 on the M5StickC Plus, 4 (at double size) on taller screens.
+  // On big screens the pet is at its smallest (1x, ending near y=90) and the
+  // text takes everything below it.
+  const int LH = 8 * TS, WIDTH = MCOLS;
+  #if defined(BOARD_PET_CORNER)
+  const int SHOW = TS > 1 ? (H - BOARD_CORNER_H) / LH : 3;
+#else
+  const int SHOW = TS > 1 ? (H - 86) / LH : 3;
+#endif
   const int AREA = SHOW * LH + 4;
   spr.fillRect(0, H - AREA, W, AREA, p.bg);
-  spr.setTextSize(1);
+  spr.setTextSize(TS);
 
   if (tama.lineGen != lastLineGen) { msgScroll = 0; lastLineGen = tama.lineGen; wake(); }
 
   if (tama.nLines == 0) {
     spr.setTextColor(p.text, p.bg);
-    spr.setCursor(4, H - LH - 2);
-    spr.print(tama.msg);
+    if (TS > 1) {
+      static char mrow[8][ROW_MAX];
+      uint8_t n = wrapInto(tama.msg, mrow, 8, WIDTH);
+      for (uint8_t i = 0; i < n && i < SHOW; i++) {
+        spr.setCursor(4, H - AREA + 2 + i * LH);
+        spr.print(mrow[i]);
+      }
+    } else {
+      spr.setCursor(4, H - LH - 2);
+      spr.print(tama.msg);
+    }
+    spr.setTextSize(1);
     return;
   }
 
   // Wrap all transcript lines into a flat display buffer. Track which
   // transcript index each display row came from, so we can dim older ones.
-  static char disp[32][24];
+  static char disp[32][ROW_MAX];
   static uint8_t srcOf[32];
   uint8_t nDisp = 0;
   for (uint8_t i = 0; i < tama.nLines && nDisp < 32; i++) {
@@ -930,19 +1052,39 @@ void drawHUD() {
   }
   if (msgScroll > 0) {
     spr.setTextColor(p.body, p.bg);
-    spr.setCursor(W - 18, H - LH - 2);
+    spr.setCursor(W - 4 - 3 * 6 * TS, H - LH - 2);
     spr.printf("-%u", msgScroll);
   }
+  spr.setTextSize(1);
 }
 
 void setup() {
   M5.begin();
-  M5.Lcd.setRotation(0);
+  M5.Lcd.setRotation(BOARD_HOME_ROTATION);
   M5.Imu.Init();
+  {
+    float ax, ay, az;
+    M5.Imu.getAccelData(&ax, &ay, &az);
+    Serial.printf("imu %.2f %.2f %.2f\n", ax, ay, az);
+  }
   M5.Beep.begin();
+  // Allocate the frame sprite before BLE takes its share of internal RAM.
+  // A full 240x280 frame is 134 KB at 16 bits; without PSRAM that may not
+  // fit in one block, so fall back to 8-bit colour rather than no screen.
+  if (!spr.createSprite(W, H)) {
+    spr.setColorDepth(8);
+    spr.createSprite(W, H);
+  }
+  Serial.printf("sprite %dx%d @%ubpp, free heap %u, largest block %u\n",
+                spr.width(), spr.height(), (unsigned)spr.getColorDepth(),
+                (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
   startBt();
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, HIGH);   // off
+  if (LED_PIN >= 0) {
+#if !defined(BOARD_LED_WS2812)
+    pinMode(LED_PIN, OUTPUT);
+#endif
+    ledWrite(HIGH);   // off
+  }
   applyBrightness();
   lastInteractMs = millis();
   statsLoad();
@@ -950,8 +1092,7 @@ void setup() {
   petNameLoad();
   buddyInit();
 
-  // BLE stays always-on; s.bt is stored as a preference only.
-  spr.createSprite(W, H);
+  bleSetEnabled(settings().bt);   // BLE started above, before the settings were loaded
   characterInit(nullptr);  // scan /characters/ for whatever is installed
   gifAvailable = characterLoaded();
   // species NVS: 0..N-1 = ASCII species, 0xFF = use GIF (also the default,
@@ -1002,10 +1143,11 @@ void loop() {
   if ((int32_t)(now - oneShotUntil) >= 0) activeState = baseState;
 
   // LED: pulse on attention, otherwise off
-  if (activeState == P_ATTENTION && settings().led) {
-    digitalWrite(LED_PIN, (now / 400) % 2 ? LOW : HIGH);
+  if (LED_PIN < 0) {
+  } else if (activeState == P_ATTENTION && settings().led) {
+    ledWrite((now / 400) % 2 ? LOW : HIGH);
   } else {
-    digitalWrite(LED_PIN, HIGH);
+    ledWrite(HIGH);
   }
 
   // shake → dizzy + force scenario advance
@@ -1138,6 +1280,20 @@ void loop() {
     }
   }
 
+#if defined(BOARD_DEBUG_LOOP)
+  {
+    static uint32_t lastDbg = 0, loops = 0;
+    loops++;
+    if (now - lastDbg >= 2000) {
+      Serial.printf("[loop] %lu loops/s rtc %02u:%02u:%02u valid=%d conn=%d run=%u wait=%u tot=%u gen=%u nap=%d off=%d dim=%d heap=%u\n",
+        (unsigned long)(loops * 1000 / (now - lastDbg ? now - lastDbg : 1)),
+        _clkTm.Hours, _clkTm.Minutes, _clkTm.Seconds, dataRtcValid(), tama.connected, tama.sessionsRunning, tama.sessionsWaiting, tama.sessionsTotal, tama.lineGen, napping, screenOff, dimmed,
+        (unsigned)ESP.getFreeHeap());
+      lastDbg = now; loops = 0;
+    }
+  }
+#endif
+
   // blink bookkeeping
 
   // Charging clock: takes over the home screen when on USB power, no
@@ -1155,11 +1311,37 @@ void loop() {
   else { clockOrient = 0; orientFrames = 0; paintedOrient = 0; }
   bool landscapeClock = clocking && clockOrient != 0;
 
+  // Corner layout: pet top-left, status light beside it, everything else for text.
+  const bool cornerOn = BOARD_PET_CORNER_ON && displayMode == DISP_NORMAL;
+  buddySetCorner(cornerOn);
+
+  // Shrink the pet while there's a transcript or approval prompt to show, so
+  // the text gets the room. Home size otherwise.
+  if (!clocking && displayMode == DISP_NORMAL && buddyMode) {
+    static uint8_t lastScale = 0;
+    bool hasText = settings().hud && (tama.nLines > 0 || inPrompt || tama.msg[0]);
+    uint8_t want = hasText ? BOARD_MSG_BUDDY_SCALE : BOARD_BUDDY_SCALE;
+    buddySetScale(want);
+    // The pet strip only repaints its own rows; also clear down to the text
+    // so nothing from a bigger pet or an old message lingers in between.
+    if (hasText && TS > 1 && !cornerOn) {
+      int lh = 8 * TS;
+      buddySetClearH(inPrompt ? 90 : H - ((H - 86) / lh * lh + 4));
+    } else buddySetClearH(0);
+    if (want != lastScale) {
+      spr.fillSprite(characterPalette().bg);   // clear the larger pet's leftovers
+      lastScale = want;
+    }
+  }
+
   static bool wasClocking = false;
   static bool wasLandscape = false;
   if (clocking != wasClocking || landscapeClock != wasLandscape) {
-    if (clocking && !landscapeClock) characterSetPeek(true);
-    else applyDisplayMode();
+    if (clocking && !landscapeClock) {
+      // Shrink the pet so it sits above the clock instead of under it.
+      characterSetPeek(true);
+      buddySetScale(BOARD_CLOCK_BUDDY_SCALE);
+    } else applyDisplayMode();
     characterInvalidate();
     if (buddyMode) buddyInvalidate();
     wasClocking = clocking;
@@ -1182,8 +1364,23 @@ void loop() {
 
   static uint32_t lastPasskey = 0;
   uint32_t pk = blePasskey();
-  if (pk && !lastPasskey) { wake(); beep(1800, 60); }
+  if (pk && !lastPasskey) {
+    wake(); beep(1800, 60);
+    menuOpen = settingsOpen = resetOpen = false;   // never hide the pairing code
+  }
   lastPasskey = pk;
+
+  // Closing a menu or the pairing screen leaves it in the sprite: the ASCII
+  // buddy only repaints its own strip, so wipe the frame once when an
+  // overlay goes away.
+  static bool hadOverlay = false;
+  bool overlay = menuOpen || settingsOpen || resetOpen || blePasskey();
+  if (hadOverlay && !overlay) {
+    spr.fillSprite(characterPalette().bg);
+    characterInvalidate();
+    if (buddyMode) buddyInvalidate();
+  }
+  hadOverlay = overlay;
 
   if (napping || screenOff || landscapeClock) {
     // skip sprite render — face-down, powered off, or landscape clock
@@ -1223,6 +1420,7 @@ void loop() {
     else if (displayMode == DISP_INFO) drawInfo();
     else if (displayMode == DISP_PET) drawPet();
     else if (settings().hud) drawHUD();
+    if (BOARD_PET_CORNER_ON && displayMode == DISP_NORMAL && !blePasskey()) drawStatus(inPrompt);
     if (resetOpen) drawReset();
     else if (settingsOpen) drawSettings();
     else if (menuOpen) drawMenu();

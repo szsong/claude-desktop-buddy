@@ -6,7 +6,7 @@
 // and defines its 7 state functions.
 
 // Geometry — shared layout for all species
-extern const int BUDDY_X_CENTER;
+extern int BUDDY_X_CENTER;   // moves with buddySetCorner()
 extern const int BUDDY_CANVAS_W;
 extern const int BUDDY_Y_BASE;
 extern const int BUDDY_Y_OVERLAY;
@@ -35,3 +35,9 @@ void buddyPrintSprite(const char* const* lines, uint8_t nLines, int yOffset, uin
 void buddySetCursor(int x, int y);
 void buddySetColor(uint16_t fg);
 void buddyPrint(const char* s);
+
+// Filled rectangle in screen pixels, relative to BUDDY_X_CENTER and the screen
+// row of BUDDY_Y_BASE. Not scaled: block-drawn species size themselves from
+// buddyScale().
+void buddyFillRect(int x, int y, int w, int h, uint16_t color);
+uint8_t buddyScale();

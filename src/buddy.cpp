@@ -1,6 +1,6 @@
 #include "buddy.h"
 #include "buddy_common.h"
-#include <M5StickCPlus.h>
+#include "hw.h"
 #include <string.h>
 
 extern TFT_eSprite spr;
@@ -9,8 +9,10 @@ extern TFT_eSprite spr;
 enum { B_SLEEP, B_IDLE, B_BUSY, B_ATTENTION, B_CELEBRATE, B_DIZZY, B_HEART };
 
 // ──────────────── shared geometry ────────────────
-const int BUDDY_X_CENTER = 67;
-const int BUDDY_CANVAS_W = 135;
+int BUDDY_X_CENTER = BOARD_UI_W / 2;
+static int _yShift = 0;                       // rows the pet is lifted by in the corner
+static int _clearW = BOARD_UI_W;              // width cleared before each pet redraw
+const int BUDDY_CANVAS_W = BOARD_UI_W;
 const int BUDDY_Y_BASE   = 30;
 const int BUDDY_Y_OVERLAY = 6;
 const int BUDDY_CHAR_W   = 6;
@@ -54,7 +56,7 @@ void buddyPrintLine(const char* line, int yPx, uint16_t color, int xOff) {
 
 void buddyPrintSprite(const char* const* lines, uint8_t nLines, int yOffset, uint16_t color, int xOff) {
   _tgt->setTextSize(_scale);
-  int yBase = BUDDY_Y_BASE * _scale - (_scale - 1) * 14;
+  int yBase = BUDDY_Y_BASE * _scale - (_scale - 1) * 14 - _yShift;
   for (uint8_t i = 0; i < nLines; i++) {
     buddyPrintLine(lines[i], yBase + (yOffset + i * BUDDY_CHAR_H) * _scale, color, xOff);
   }
@@ -63,12 +65,20 @@ void buddyPrintSprite(const char* const* lines, uint8_t nLines, int yOffset, uin
 // Species pass 1× coords (relative to BUDDY_X_CENTER / BUDDY_Y_OVERLAY);
 // transform here so all 18 species files stay scale-agnostic.
 void buddySetCursor(int x, int y) {
-  _tgt->setCursor(BUDDY_X_CENTER + (x - BUDDY_X_CENTER) * _scale, y * _scale);
+  _tgt->setCursor(BUDDY_X_CENTER + (x - BUDDY_X_CENTER) * _scale, y * _scale - _yShift);
 }
 void buddySetColor(uint16_t fg)   { _tgt->setTextColor(fg, BUDDY_BG); }
 void buddyPrint(const char* s)    { _tgt->setTextSize(_scale); _tgt->print(s); }
 
+// Raw pixels for species drawn as blocks rather than text, relative to the
+// pet's anchor (BUDDY_X_CENTER and the screen row of BUDDY_Y_BASE).
+void buddyFillRect(int x, int y, int w, int h, uint16_t color) {
+  _tgt->fillRect(BUDDY_X_CENTER + x, BUDDY_Y_BASE * _scale - _yShift + y, w, h, color);
+}
+uint8_t buddyScale() { return _scale; }
+
 // ──────────────── species registry ────────────────
+extern const Species CLAWD_SPECIES;
 extern const Species CAPYBARA_SPECIES;
 extern const Species DUCK_SPECIES;
 extern const Species GOOSE_SPECIES;
@@ -89,6 +99,7 @@ extern const Species MUSHROOM_SPECIES;
 extern const Species CHONK_SPECIES;
 
 static const Species* SPECIES_TABLE[] = {
+  &CLAWD_SPECIES,
   &CAPYBARA_SPECIES, &DUCK_SPECIES, &GOOSE_SPECIES, &BLOB_SPECIES,
   &CAT_SPECIES, &DRAGON_SPECIES, &OCTOPUS_SPECIES, &OWL_SPECIES,
   &PENGUIN_SPECIES, &TURTLE_SPECIES, &SNAIL_SPECIES, &GHOST_SPECIES,
@@ -146,8 +157,26 @@ static uint8_t lastDrawnState = 0xFF;
 static uint8_t lastDrawnSpecies = 0xFF;
 void buddyInvalidate() { lastDrawnState = 0xFF; }
 
-void buddySetPeek(bool peek) {
-  uint8_t s = peek ? 1 : 2;
+static int _clearH = 0;
+// Park the pet in the top-left corner (BOARD_CORNER_W x BOARD_CORNER_H) or
+// put it back in the middle of the screen.
+void buddySetCorner(bool on) {
+#if defined(BOARD_PET_CORNER)
+  int cx = on ? BOARD_CORNER_W / 2 : BOARD_UI_W / 2;
+  int ys = on ? 14 : 0;
+  int cw = on ? BOARD_CORNER_W : BOARD_UI_W;
+  if (cx == BUDDY_X_CENTER && ys == _yShift && cw == _clearW) return;
+  BUDDY_X_CENTER = cx; _yShift = ys; _clearW = cw;
+  buddyInvalidate();
+#else
+  (void)on;
+#endif
+}
+void buddySetClearH(int h) { if (h != _clearH) { _clearH = h; buddyInvalidate(); } }
+
+void buddySetPeek(bool peek) { buddySetScale(peek ? 1 : BOARD_BUDDY_SCALE); }
+
+void buddySetScale(uint8_t s) {
   if (s == _scale) return;
   _scale = s;
   buddyInvalidate();
@@ -188,8 +217,9 @@ void buddyTick(uint8_t personaState) {
   lastDrawnSpecies = currentSpeciesIdx;
 
   // Clear the whole render strip — at 2× the body reaches y≈126, at 1× ≈82.
-  spr.fillRect(0, 0, BUDDY_CANVAS_W,
-               (BUDDY_Y_BASE + 5 * BUDDY_CHAR_H + 12) * _scale, BUDDY_BG);
+  int clearH = (BUDDY_Y_BASE + 5 * BUDDY_CHAR_H + 12) * _scale - _yShift;
+  if (_clearH > clearH) clearH = _clearH;
+  spr.fillRect(0, 0, _clearW, clearH, BUDDY_BG);
 
   const Species* sp = SPECIES_TABLE[currentSpeciesIdx];
   if (sp->states[personaState]) sp->states[personaState](tickCount);

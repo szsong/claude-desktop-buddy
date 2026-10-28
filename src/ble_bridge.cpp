@@ -5,6 +5,9 @@
 #include <BLESecurity.h>
 #include <BLE2902.h>
 #include <Arduino.h>
+#if defined(CONFIG_NIMBLE_ENABLED)
+#include <host/ble_store.h>
+#endif
 #include <string.h>
 
 // Nordic UART Service UUIDs — every BLE serial example uses these, so
@@ -25,6 +28,7 @@ static volatile size_t rxTail = 0;
 static BLEServer*         server = nullptr;
 static BLECharacteristic* txChar = nullptr;
 static BLECharacteristic* rxChar = nullptr;
+static volatile bool      enabled = true;
 static volatile bool      connected = false;
 static volatile bool      secure = false;
 static volatile uint32_t  passkey = 0;
@@ -41,8 +45,12 @@ static void rxPush(const uint8_t* p, size_t n) {
 
 class RxCallbacks : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic* c) override {
-    std::string v = c->getValue();
-    if (!v.empty()) rxPush((const uint8_t*)v.data(), v.size());
+    // std::string on Arduino core 2.x, String on 3.x.
+    auto v = c->getValue();
+    if (v.length()) rxPush((const uint8_t*)v.c_str(), v.length());
+    // RX only accepts encrypted writes, so data arriving means pairing is
+    // done, even if the stack never delivered the auth-complete callback.
+    if (v.length() && !secure) { secure = true; passkey = 0; }
   }
 };
 
@@ -50,6 +58,7 @@ class ServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer* s) override {
     connected = true;
     Serial.println("[ble] connected");
+    if (!enabled) s->disconnect(s->getConnId());   // got in just as BT was turned off
   }
   void onDisconnect(BLEServer* s) override {
     connected = false;
@@ -58,12 +67,19 @@ class ServerCallbacks : public BLEServerCallbacks {
     mtu = 23;
     Serial.println("[ble] disconnected");
     // Restart advertising so the next client can find us.
-    BLEDevice::startAdvertising();
+    if (enabled) BLEDevice::startAdvertising();
   }
+#if defined(CONFIG_NIMBLE_ENABLED)
+  void onMtuChanged(BLEServer*, ble_gap_conn_desc*, uint16_t m) override {
+    mtu = m;
+    Serial.printf("[ble] mtu=%u\n", mtu);
+  }
+#else
   void onMtuChanged(BLEServer*, esp_ble_gatts_cb_param_t* param) override {
     mtu = param->mtu.mtu;
     Serial.printf("[ble] mtu=%u\n", mtu);
   }
+#endif
 };
 
 // LE Secure Connections, passkey-entry: we are DisplayOnly, the central
@@ -78,11 +94,20 @@ class SecCallbacks : public BLESecurityCallbacks {
     passkey = pk;
     Serial.printf("[ble] passkey %06lu\n", (unsigned long)pk);
   }
+#if defined(CONFIG_NIMBLE_ENABLED)
+  void onAuthenticationComplete(ble_gap_conn_desc* desc, int status) override {
+    authDone(status == 0 && desc->sec_state.encrypted && desc->sec_state.authenticated);
+  }
+#else
   void onAuthenticationComplete(esp_ble_auth_cmpl_t cmpl) override {
+    authDone(cmpl.success);
+  }
+#endif
+  void authDone(bool ok) {
     passkey = 0;
-    secure = cmpl.success;
-    Serial.printf("[ble] auth %s\n", cmpl.success ? "ok" : "FAIL");
-    if (!cmpl.success && server) server->disconnect(server->getConnId());
+    secure = ok;
+    Serial.printf("[ble] auth %s\n", ok ? "ok" : "FAIL");
+    if (!ok && server) server->disconnect(server->getConnId());
   }
 };
 
@@ -91,7 +116,9 @@ void bleInit(const char* deviceName) {
   // Request the biggest MTU we can get. macOS negotiates to 185 typically.
   BLEDevice::setMTU(517);
 
+#if !defined(CONFIG_NIMBLE_ENABLED)
   BLEDevice::setEncryptionLevel(ESP_BLE_SEC_ENCRYPT_MITM);
+#endif
   BLEDevice::setSecurityCallbacks(new SecCallbacks());
 
   server = BLEDevice::createServer();
@@ -99,6 +126,19 @@ void bleInit(const char* deviceName) {
 
   BLEService* svc = server->createService(NUS_SERVICE_UUID);
 
+#if defined(CONFIG_NIMBLE_ENABLED)
+  // NimBLE takes security as characteristic flags and adds the CCCD itself.
+  txChar = svc->createCharacteristic(
+    NUS_TX_UUID,
+    BLECharacteristic::PROPERTY_NOTIFY | BLECharacteristic::PROPERTY_READ_ENC |
+    BLECharacteristic::PROPERTY_READ_AUTHEN
+  );
+  rxChar = svc->createCharacteristic(
+    NUS_RX_UUID,
+    BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR |
+    BLECharacteristic::PROPERTY_WRITE_ENC | BLECharacteristic::PROPERTY_WRITE_AUTHEN
+  );
+#else
   txChar = svc->createCharacteristic(
     NUS_TX_UUID,
     BLECharacteristic::PROPERTY_NOTIFY
@@ -113,6 +153,7 @@ void bleInit(const char* deviceName) {
     BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR
   );
   rxChar->setAccessPermissions(ESP_GATT_PERM_WRITE_ENCRYPTED);
+#endif
   rxChar->setCallbacks(new RxCallbacks());
 
   svc->start();
@@ -123,21 +164,45 @@ void bleInit(const char* deviceName) {
   sec->setKeySize(16);
   sec->setInitEncryptionKey(ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK);
   sec->setRespEncryptionKey(ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK);
+#if defined(CONFIG_NIMBLE_ENABLED)
+  // NimBLE needs the passkey set up front; a fresh random one per pairing.
+  sec->setPassKey(false);
+  sec->regenPassKeyOnConnect(true);
+#endif
 
   BLEAdvertising* adv = BLEDevice::getAdvertising();
   adv->addServiceUUID(NUS_SERVICE_UUID);
   adv->setScanResponse(true);
   adv->setMinPreferred(0x06);   // iOS-friendly connection interval
   adv->setMaxPreferred(0x12);
-  BLEDevice::startAdvertising();
+  if (enabled) BLEDevice::startAdvertising();
   Serial.printf("[ble] advertising as '%s'\n", deviceName);
 }
 
+void bleSetEnabled(bool on) {
+  enabled = on;
+  if (!server) return;
+  if (on) {
+    BLEDevice::startAdvertising();
+  } else {
+    BLEDevice::stopAdvertising();
+    if (connected) server->disconnect(server->getConnId());
+  }
+  Serial.printf("[ble] %s\n", on ? "on" : "off");
+}
+
+bool bleEnabled()   { return enabled; }
 bool bleConnected() { return connected; }
 bool bleSecure()    { return secure; }
-uint32_t blePasskey() { return passkey; }
+// Once the link is encrypted the code is no longer needed, even if the
+// stack skipped the auth-complete callback.
+uint32_t blePasskey() { return secure ? 0 : passkey; }
 
 void bleClearBonds() {
+#if defined(CONFIG_NIMBLE_ENABLED)
+  ble_store_clear();
+  Serial.println("[ble] cleared bonds");
+#else
   int n = esp_ble_get_bond_device_num();
   if (n <= 0) return;
   esp_ble_bond_dev_t* list = (esp_ble_bond_dev_t*)malloc(n * sizeof(esp_ble_bond_dev_t));
@@ -146,6 +211,7 @@ void bleClearBonds() {
   for (int i = 0; i < n; i++) esp_ble_remove_bond_device(list[i].bd_addr);
   free(list);
   Serial.printf("[ble] cleared %d bond(s)\n", n);
+#endif
 }
 
 size_t bleAvailable() {

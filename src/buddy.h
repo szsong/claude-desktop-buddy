@@ -8,12 +8,16 @@
 void buddyInit();
 void buddyTick(uint8_t personaState);
 void buddyInvalidate();
-class TFT_eSPI;
+#include "gfx_fwd.h"
 void buddyRenderTo(TFT_eSPI* tgt, uint8_t personaState);
 void buddySetSpecies(const char* name);
 void buddySetSpeciesIdx(uint8_t idx);
 void buddyNextSpecies();
 void buddySetPeek(bool peek);
+// Explicit text scale (1 = peek size); buddySetPeek(false) restores the home size.
+void buddySetScale(uint8_t scale);
+void buddySetCorner(bool on);   // top-left corner layout (boards defining BOARD_PET_CORNER)
+void buddySetClearH(int h);   // also clear the sprite down to this row on each pet redraw
 uint8_t buddySpeciesIdx();
 uint8_t buddySpeciesCount();
 const char* buddySpeciesName();
