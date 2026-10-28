@@ -73,11 +73,12 @@ class Window:
         self.tick()
 
     def toggle_ble(self):
-        """Force Bluetooth: drop USB, search now (even while Claude Code is idle) and stay on
-        Bluetooth. Pressing it again goes back to the automatic choice."""
+        """Connect over Bluetooth once: drop USB and search now (even while Claude Code is idle).
+        Once connected the bridge is back to automatic, so replugging the cable moves it to USB.
+        Pressing it again while searching cancels."""
         s = self.state
         s.force_ble = not s.force_ble
-        bb.log("Bluetooth forced from the window" if s.force_ble else "Back to automatic (USB first)")
+        bb.log("Bluetooth requested from the window" if s.force_ble else "Bluetooth request cancelled (USB first)")
 
     def tick(self):
         s = self.state
@@ -93,11 +94,11 @@ class Window:
             self.status.config(text="Idle", fg=SKY)
 
         forced = s.force_ble
-        self.ble_button.config(text="Back to automatic" if forced else "Connect over Bluetooth",
+        self.ble_button.config(text="Cancel" if forced else "Connect over Bluetooth",
                                state="normal" if bb.ble_available() else "disabled")
-        self.rows["Buddy"].config(text=f"connected over {link}" + (" (Bluetooth forced)" if forced else "") if link else
-                                       "searching over Bluetooth (forced)…" if forced else
-                                       "Bluetooth scan paused (Claude Code is idle); USB is still watched" if s.ble_paused else
+        self.rows["Buddy"].config(text=f"connected over {link}" if link else
+                                       "searching over Bluetooth…" if forced else
+                                       "Bluetooth scan paused (Claude Code is idle); watching USB and the Bluetooth connected list" if s.ble_paused else
                                        "not found yet: plug it in by USB, or switch it on (Bluetooth)",
                                   fg=GREEN if link else RED)
         self.rows["Sessions"].config(
@@ -135,6 +136,7 @@ def main():
         return
     state = bb.State()
     bb.start(state, srv)
+    bb.close_on_exit(state)
     threading.Thread(target=bb.link_loop, args=(state,), daemon=True).start()
     Window(root, state)
     root.mainloop()

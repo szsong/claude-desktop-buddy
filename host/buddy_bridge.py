@@ -14,7 +14,7 @@ up while the bridge is on Bluetooth, it moves to USB.
 Needs Python 3.8+. USB uses pyserial if it is installed, otherwise termios
 (macOS and Linux). Bluetooth needs bleak (pip install bleak).
 """
-import argparse, asyncio, collections, glob, itertools, json, os, queue, socket, subprocess, sys, threading, time, uuid
+import argparse, asyncio, atexit, signal, collections, glob, itertools, json, os, queue, socket, subprocess, sys, threading, time, uuid
 
 TCP_HOST, TCP_PORT = "127.0.0.1", 47321
 RUN_TIMEOUT = 300       # a "running" session with no events for this long counts as idle
@@ -154,6 +154,7 @@ class BleLink:
     plain thread. The first connection asks macOS to pair: type the 6-digit code
     the buddy shows on its screen."""
     kind = "ble"
+    SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
     TX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"   # buddy -> computer, notify
     RX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"   # computer -> buddy, write
 
@@ -185,13 +186,33 @@ class BleLink:
             if want: return want in name.lower() or want == dev.address.lower()
             return name.startswith("Claude") and not name.startswith("Claudinho")   # Claudinho speaks another protocol
 
-        dev = await BleakScanner.find_device_by_filter(match, timeout=6)
+        dev = await self._already_connected(match) or await BleakScanner.find_device_by_filter(match, timeout=6)
         if not dev: raise OSError("no buddy in Bluetooth range")
         self.client = BleakClient(dev, disconnected_callback=lambda _c: setattr(self, "dead", True))
         await self.client.connect(timeout=20)
         await self.client.start_notify(self.TX, self._notify)   # first encrypted access: pairing happens here
         self.path = dev.address
         self.label = f"Bluetooth {dev.name or dev.address}"
+
+    async def _already_connected(self, match):
+        """macOS keeps a paired buddy connected on its own (e.g. a link a closed bridge left behind),
+        and a connected buddy stops advertising, so a scan never sees it. Ask CoreBluetooth for
+        connected devices that offer the Nordic UART service instead. macOS only; it reaches into
+        bleak's CoreBluetooth backend, so any failure just means "scan as usual"."""
+        if sys.platform != "darwin": return None
+        try:
+            from bleak import BleakScanner
+            from bleak.backends.device import BLEDevice
+            from CoreBluetooth import CBUUID
+            manager = BleakScanner()._backend._manager
+            await manager.wait_until_ready()
+            nus = CBUUID.UUIDWithString_(self.SERVICE)
+            for p in manager.central_manager.retrieveConnectedPeripheralsWithServices_([nus]):
+                dev = BLEDevice(p.identifier().UUIDString(), p.name(), (p, manager))
+                if match(dev, type("Adv", (), {"local_name": None})()): return dev
+        except Exception:
+            pass
+        return None
 
     def _notify(self, _char, data):
         self.buf += bytes(data)
@@ -225,6 +246,38 @@ class BleLink:
         loop.call_soon_threadsafe(loop.stop)
 
 
+class ConnectedWatch:
+    """Is a buddy in macOS's list of connected Bluetooth devices? macOS connects a paired buddy by
+    itself when it comes into range, so asking is a cheap way to notice it while the Bluetooth scan
+    is paused: no radio scan, just a query. macOS only (False elsewhere or on any error)."""
+    def __init__(self, target=None):
+        self.target = (target or "").lower()
+        self.loop = self.manager = None
+
+    def present(self):
+        if sys.platform != "darwin": return False
+        if not self.loop:
+            self.loop = asyncio.new_event_loop()
+            threading.Thread(target=self.loop.run_forever, daemon=True).start()
+        try:
+            return asyncio.run_coroutine_threadsafe(self._check(), self.loop).result(10)
+        except Exception:
+            return False
+
+    async def _check(self):
+        from bleak import BleakScanner
+        from CoreBluetooth import CBUUID
+        if not self.manager:
+            self.manager = BleakScanner()._backend._manager
+            await self.manager.wait_until_ready()
+        for p in self.manager.central_manager.retrieveConnectedPeripheralsWithServices_([CBUUID.UUIDWithString_(BleLink.SERVICE)]):
+            name = p.name() or ""
+            if self.target and self.target in name.lower() or \
+               not self.target and name.startswith("Claude") and not name.startswith("Claudinho"):
+                return True
+        return False
+
+
 def ble_available():
     try:
         import bleak  # noqa: F401
@@ -252,6 +305,7 @@ class State:
         self.dirty = True
         self.link = None        # how the buddy is reached ("USB /dev/...", "Bluetooth Claude-1234"), None while looking
         self.link_kind = None   # "usb" or "ble"
+        self.link_obj = None    # the open Serial/BleLink, so an exit can close it cleanly
         self.last_hb = 0        # when the last heartbeat went out
         self.labels = True      # tag entries with their session when several are open
         self.ble_paused = False # Bluetooth scanning is on hold because Claude Code is idle
@@ -559,12 +613,14 @@ def link_loop(state, port=None, baud=115200, transport="auto", ble_target=None, 
     """Reach the buddy forever: USB when it is plugged in, otherwise Bluetooth
     (when allowed and bleak is installed). Moves back to USB as soon as a cable
     appears, and reopens whichever link goes away. While Claude Code is idle the
-    Bluetooth search is paused (it keeps the radio busy), and starts again the
-    moment a session works or asks for you; scan_idle keeps it going regardless.
+    Bluetooth search is paused (it keeps the radio busy) but macOS's list of connected
+    devices is still polled, so a buddy that shows up is picked up at once; the
+    search starts again the moment a session works or asks for you; scan_idle keeps it going regardless.
     A Bluetooth link that is already up is never dropped for being idle.
-    state.force_ble (the window's button) overrides all of that: USB is dropped
-    and ignored, the Bluetooth search runs even while idle, and the link stays on
-    Bluetooth until the flag is cleared."""
+    state.force_ble (the window's button) is a one-shot request: USB is dropped,
+    the Bluetooth search runs even while idle, and the flag clears once Bluetooth
+    is up. The cable that was plugged in then is ignored until it is unplugged;
+    plugging it in again moves the link back to USB."""
     use_usb, use_ble = transport in ("auto", "usb"), transport in ("auto", "ble")
     if use_ble and not ble_available():
         log("Bluetooth needs bleak (pip install bleak); using USB only")
@@ -573,7 +629,9 @@ def link_loop(state, port=None, baud=115200, transport="auto", ble_target=None, 
     said = {}
     def once(key, text):
         if said.get(key) != text: said[key] = text; log(text)
+    watch = ConnectedWatch(ble_target)
     usb_seen = [0.0, None]
+    usb_hold = [False]                               # a cable was in when Bluetooth was forced: ignore it until it is pulled
     def usb_path():                                  # the serial port scan is not free: at most every 2 s
         if time.time() - usb_seen[0] > 2: usb_seen[:] = [time.time(), port or find_port()]
         return usb_seen[1]
@@ -582,23 +640,36 @@ def link_loop(state, port=None, baud=115200, transport="auto", ble_target=None, 
         path = (port or find_port()) if use_usb and not forced else None
         if path: link = Serial(path, baud)
         elif use_ble:
-            if not scan_idle and not forced and not state.busy():
-                if not state.ble_paused: state.ble_paused = True; log("Claude Code is idle: Bluetooth scanning paused")
-                time.sleep(1); continue
-            if state.ble_paused: state.ble_paused = False; log("Claude Code is active: Bluetooth scanning")
+            idle = not scan_idle and not forced and not state.busy()
+            if idle and watch.present():
+                log("buddy is in the Bluetooth connected list: connecting")
+            elif idle:
+                if not state.ble_paused: state.ble_paused = True; log("Claude Code is idle: Bluetooth scanning paused (watching the connected list)")
+                time.sleep(2); continue
+            elif state.ble_paused: state.ble_paused = False; log("Claude Code is active: Bluetooth scanning")
             link = BleLink(ble_target)
         else:
             time.sleep(2); continue
         reason = None
         try:
             link.open()
-            state.link, state.link_kind = link.label, link.kind
+            state.link, state.link_kind, state.link_obj = link.label, link.kind, link
             state.ble_paused = False
             said.clear()
             log("buddy on", link.label)
             if link.kind == "ble":
-                leave = lambda: ("USB is plugged in: switching from Bluetooth to USB" if use_usb and not state.force_ble and usb_path() else None)
+                if state.force_ble:
+                    state.force_ble = False
+                    usb_hold[0] = bool(use_usb and usb_path())
+                    if usb_hold[0]: log("Bluetooth connected; USB is ignored until the cable is replugged")
+                def leave():
+                    cable = usb_path() if use_usb else None
+                    if usb_hold[0]:
+                        if not cable: usb_hold[0] = False
+                        return None
+                    return "USB is plugged in: switching from Bluetooth to USB" if cable else None
             else:
+                usb_hold[0] = False
                 leave = (lambda: "Bluetooth was forced: switching from USB to Bluetooth" if state.force_ble and use_ble else None) if use_ble else None
             reason = pump(state, link, leave)
             log(reason)
@@ -607,8 +678,20 @@ def link_loop(state, port=None, baud=115200, transport="auto", ble_target=None, 
             else: log("serial problem:", e, "- retrying")
         finally:
             link.close()
-            state.link = state.link_kind = None
+            state.link = state.link_kind = state.link_obj = None
         time.sleep(0.5 if reason else 2)
+
+
+def close_on_exit(state):
+    """Close the buddy link when the bridge exits (normally, Ctrl-C, closed window, SIGTERM or SIGHUP).
+    A Bluetooth link that is simply dropped is left "connected" by macOS for a while, and the
+    buddy does not advertise meanwhile, so the next start cannot find it."""
+    def release():
+        link = state.link_obj
+        if link: link.close()
+    atexit.register(release)
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, lambda *_: sys.exit(0))
 
 
 def main():
@@ -634,6 +717,7 @@ def main():
     state = State()
     state.labels = not args.no_labels
     start(state, srv, args.watch)
+    close_on_exit(state)
     link_loop(state, args.port, args.baud, args.transport, args.ble, args.scan_idle)
 
 
