@@ -22,6 +22,11 @@ TOOL_TIMEOUT = 1800     # same, while a tool call is in progress (hooks are sile
 STOP_GRACE = 5          # a finished turn often resumes at once (background task done, queued message)
 WATCH_ACTIVE = 15       # a transcript written this recently counts as running
 MAX_ENTRIES = 6
+# Tools that ask a question with options instead of a yes/no. The buddy can only answer yes/no,
+# so for these it just says "answer in the terminal": the hook is let go at once and Claude Code
+# asks as usual (a bare "allow" would be ignored, leaving the question open).
+QUESTION_TOOLS = {"AskUserQuestion"}
+QUESTION_TTL = 3600     # a question nobody answered for this long stops being shown
 HB_LIMIT = 1000         # bytes: the buddy firmware reads heartbeats into a 1 KB line buffer
 
 
@@ -300,6 +305,7 @@ class State:
         self.paths = {}         # session id -> transcript file
         self.ctx_cache = {}     # session id -> ((mtime, size), tokens)
         self.window = default_window()
+        self.questions = {}     # session id -> {"q": text, "since": ts}: multiple-choice questions waiting in the terminal
         self.pending = {}       # permission id -> {"tool","ti","hint","event","decision","sid"}
         self.msg = "idle"
         self.dirty = True
@@ -341,8 +347,10 @@ class State:
             if ev.get("transcript_path"): self.paths[sid] = ev["transcript_path"]
             if name in ("PostToolUse", "PostToolUseFailure"):
                 self.settle(sid, tool, ti)          # approved: that tool ran
+                if tool in QUESTION_TOOLS: self.questions.pop(sid, None)   # answered in the terminal
             elif name in ("UserPromptSubmit", "Stop", "StopFailure", "SessionEnd"):
                 self.settle(sid)                    # the turn moved on: anything still asked is moot
+                self.questions.pop(sid, None)
             if name == "UserPromptSubmit":
                 self.touch(sid, "running")
                 self.add_entry(f"{hhmm} thinking...", sid)
@@ -412,8 +420,10 @@ class State:
     def heartbeat(self):
         with self.lock:
             run = sum(1 for s in self.sessions.values() if s["state"] == "running")
+            now = time.time()
+            for sid in [k for k, q in self.questions.items() if now - q["since"] > QUESTION_TTL]: del self.questions[sid]
             wait = len({sid for sid, s in self.sessions.items() if s["state"] == "waiting"}
-                       | {p["sid"] for p in self.pending.values()})
+                       | {p["sid"] for p in self.pending.values()} | set(self.questions))
             hb = {"total": len(self.sessions), "running": run, "waiting": wait,
                   "msg": ("approve: " + next(iter(self.pending.values()))["tool"]) if self.pending else self.msg,
                   "entries": [t for t, _ in self.entries], "tokens": 0, "tokens_today": 0}
@@ -423,6 +433,12 @@ class State:
                 hb["sc"] = [self.slots.get(sid, 0) % 6 for _, sid in self.entries]
             if self.labels:
                 hb["cx"] = [self.context_pct(sid) if sid else -1 for _, sid in self.entries]   # context % of each line's session
+            if self.questions and not self.pending:
+                sid = max(self.questions, key=lambda k: self.questions[k]["since"])   # the newest one
+                hb["ask"] = {"q": self.questions[sid]["q"][:90]}
+                if self.labels and len(self.sessions) > 1:
+                    hb["ask"]["sess"] = self.label(sid); hb["ask"]["sc"] = self.slots.get(sid, 0) % 6
+                hb["msg"] = "question: " + self.questions[sid]["q"][:30]
             for pid, p in self.pending.items():
                 hb["prompt"] = {"id": pid, "tool": p["tool"][:19], "hint": p["hint"][:43]}
                 if self.labels and len(self.sessions) > 1:
@@ -448,6 +464,14 @@ def describe(tool, ti):
         if isinstance(ti.get(k), str):
             return os.path.basename(ti[k]) if k in ("file_path", "path") else ti[k].replace("\n", " ")
     return ""
+
+
+def question_text(ti):
+    """The first question of an AskUserQuestion call, as one line."""
+    qs = ti.get("questions")
+    first = qs[0] if isinstance(qs, list) and qs and isinstance(qs[0], dict) else {}
+    text = first.get("question") or first.get("header") or ti.get("question") or "Claude has a question"
+    return " ".join(str(text).split())
 
 
 def command_mark(ti):
@@ -498,6 +522,16 @@ def handle(state, conn):
         pid = "req_" + uuid.uuid4().hex[:8]
         tool, ti = ev.get("tool_name", "?"), ev.get("tool_input") or {}
         sid = ev.get("session_id", "?")
+        if tool in QUESTION_TOOLS:
+            q = question_text(ti)
+            with state.lock:
+                state.questions[sid] = {"q": q, "since": time.time()}
+                state.asks.add(sid); state.dirty = True
+                state.slots.setdefault(sid, len(state.slots))
+                if ev.get("cwd"): state.cwds[sid] = os.path.basename(ev["cwd"].rstrip("/")) or "/"
+            log("question for you (answer in the terminal):", q[:60])
+            conn.sendall(b'{"decision": "none"}\n')     # let Claude Code ask as usual
+            return
         p = {"tool": tool, "ti": ti, "hint": describe(tool, ti) or tool, "event": threading.Event(),
              "decision": None, "sid": sid}
         with state.lock:
@@ -588,7 +622,11 @@ def pump(state, link, leave=None):
             if line.startswith("{"):
                 try: msg = json.loads(line)
                 except ValueError: continue
-                if msg.get("cmd") == "permission":
+                if msg.get("cmd") == "dismiss":        # the buddy's owner waved a question away
+                    with state.lock:
+                        if state.questions: log("question dismissed on the buddy")
+                        state.questions.clear(); state.dirty = True
+                elif msg.get("cmd") == "permission":
                     p = state.pending.get(msg.get("id"))
                     if p:
                         p["decision"] = "deny" if msg.get("decision") == "deny" else "allow"

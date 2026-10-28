@@ -132,9 +132,11 @@ static void safeCopy(char* dst, size_t n, const char* src) {
 // ───────────── what the bridge tells us ─────────────
 enum Src : uint8_t { SRC_NONE, SRC_USB, SRC_BLE };
 struct Prompt { char id[40], tool[20], hint[44], sess[12]; uint8_t sc; Src src; };
+struct Ask { char q[96], sess[12]; uint8_t sc; };     // a multiple-choice question for the terminal: shown, but there is nothing to tap
 static struct {
   uint8_t running = 0, waiting = 0;
   Prompt prompt = {};
+  Ask ask = {};                                      // empty q: none
   char lines[8][92] = {}; uint8_t nLines = 0;        // oldest first, newest last
   char sess[8][12] = {}; uint8_t sc[8] = {};         // which session each line came from (empty when only one is open)
   int8_t cx[8] = {};                                 // context % of that session, -1 unknown
@@ -215,6 +217,8 @@ static void handleCommand(JsonDocument& doc, Src src) {
   }
 }
 
+static char askDismissed[96] = "";                 // a question the user waved away; not shown again unless it changes
+
 static void applyLine(const char* line, Src src) {
   JsonDocument doc;
   if (deserializeJson(doc, line)) return;
@@ -242,6 +246,10 @@ static void applyLine(const char* line, Src src) {
     }
   }
   JsonObject pr = doc["prompt"];
+  JsonObject ak = doc["ask"];
+  if (ak.isNull()) { data.ask = {}; askDismissed[0] = 0; }   // the question is gone: a future one shows again
+  else if (!strcmp(askDismissed, ak["q"] | "")) data.ask = {};   // the one the user dismissed, still in flight
+  else { strlcpy(data.ask.q, ak["q"] | "", sizeof data.ask.q); strlcpy(data.ask.sess, ak["sess"] | "", sizeof data.ask.sess); data.ask.sc = ak["sc"] | 0; }
   if (pr.isNull()) data.prompt = {};
   else {
     strlcpy(data.prompt.id, pr["id"] | "", sizeof data.prompt.id);
@@ -553,6 +561,19 @@ static void drawBattery(int x, int y, int pct, bool charging) {
   }
 }
 
+// A multiple-choice question: shown inside the same flashing box, with the session asking and a
+// hint. There is nothing to tap, since the board can only say yes or no.
+static void drawQuestion() {
+  const int SHOW = msgRows, top = msgTop;
+  textAt(padX, top, "question", YELLOW);
+  if (data.ask.sess[0])
+    drawSmall(data.ask.sess, W - padX - (int)strlen(data.ask.sess) * 6, top + 9, SESSION_COLOR[data.ask.sc % 6]);
+  static char rows[4][ROW_MAX];
+  uint8_t n = wrapInto(data.ask.q, rows, SHOW - 2, TEXT_W, TEXT_W);
+  for (uint8_t i = 0; i < n; i++) textAt(padX, top + (1 + i) * LH, rows[i], TEXT);
+  textAt(padX + cornerInset(top + (SHOW - 1) * LH + 22), top + (SHOW - 1) * LH, "answer in the terminal", DIM);
+}
+
 static void drawApproval(const View& v) {
   const int SHOW = msgRows, top = msgTop;
   char t[48]; snprintf(t, sizeof t, "approve? %us", v.waited);
@@ -768,7 +789,7 @@ static void drawMenu() {
     } break;
     case PG_ABOUT: {
       drawTitle("help / about", YELLOW);
-      static const char* const L[] = {"tap: allow a request", "hold: deny it", "hold (idle): menu", "power key x2: lock / unlock", "power key hold: off", "Claude buddy - USB + BT"};
+      static const char* const L[] = {"tap: allow a request", "hold: deny it", "hold (idle): menu / dismiss", "power key x2: lock / unlock", "power key hold: off", "Claude buddy - USB + BT"};
       for (int i = 0; i < 6; i++) textAt(i < 5 ? MENU_X : MENU_X + 4, MENU_TOP + i * 26, L[i], i < 5 ? TEXT : DIM);
     } break;
     default: break;
@@ -819,7 +840,7 @@ static void draw(const View& v) {
       spr.fillRoundRect(BOX_X, BOX_Y, BOX_W, BOX_H, BOX_R, c);
       spr.fillRoundRect(BOX_X + BOX_BORDER, BOX_Y + BOX_BORDER, BOX_W - 2 * BOX_BORDER, BOX_H - 2 * BOX_BORDER, BOX_R - BOX_BORDER, BLACK);
     }
-    if (data.prompt.id[0]) drawApproval(v); else drawTranscript();
+    if (data.prompt.id[0]) drawApproval(v); else if (data.ask.q[0]) drawQuestion(); else drawTranscript();
     if (v.toast) {                                   // a note over the middle of the screen
       spr.fillRoundRect(15, 96, 250, 74, 16, 0x2104); spr.drawRoundRect(15, 96, 250, 74, 16, v.toast == 1 ? YELLOW : GREEN);
       spr.setTextDatum(middle_center); spr.setTextColor(TEXT, 0x2104);
@@ -867,7 +888,13 @@ static void handleTouch(uint32_t promptShownMs) {
   if (swallow) { was = now; return; }
   if (now && prompting && eligible && !cued && millis() - downAt >= DENY_HOLD_MS) { cued = true; sfx(SFX_CUE); }
   if (now && page == PG_NONE && !locked && !data.prompt.id[0] && !held && millis() - downAt >= MENU_HOLD_MS) {
-    held = true; page = PG_MAIN; sfx(SFX_MENU); menuChanged();   // swallow the release that follows
+    held = true;                                     // swallow the release that follows
+    if (data.ask.q[0]) {                             // a question for the terminal: hold to dismiss it
+      strlcpy(askDismissed, data.ask.q, sizeof askDismissed);
+      data.ask = {};
+      sendLine(activeLink(), "{\"cmd\":\"dismiss\"}");   // the bridge forgets it too, so "need input" ends
+      sfx(SFX_OFF); menuChanged();
+    } else { page = PG_MAIN; sfx(SFX_MENU); menuChanged(); }
   }
   if (!now && was && !held) {
     if (page != PG_NONE) menuTap(lastX, lastY);
@@ -896,7 +923,7 @@ static void handlePower() {
 
 static State deriveState() {
   if (!linkUp()) return S_OFFLINE;
-  if (data.prompt.id[0] || data.waiting > 0) return S_ATTN;
+  if (data.prompt.id[0] || data.ask.q[0] || (data.waiting > 0 && !askDismissed[0])) return S_ATTN;
   if (data.running > 0) return data.lastLineMs && millis() - data.lastLineMs < 8000 ? S_CODE : S_THINK;   // a new tool line = coding
   return S_IDLE;
 }
@@ -983,7 +1010,13 @@ void loop() {
   // Needs you without a prompt to answer (a question, a plan): chime once on arrival.
   // And while anything waits, remind every 30 s so it isn't missed.
   static State prevSt = S_OFFLINE; static uint32_t lastChime = 0;
-  if (st == S_ATTN && prevSt != S_ATTN && !data.prompt.id[0]) { sfx(SFX_ATTENTION); lastChime = millis(); }
+  if (st == S_ATTN && prevSt != S_ATTN && !data.prompt.id[0]) { sfx(SFX_ATTENTION); lastChime = millis(); }   // a question, or something else needs you
+  static char askShown[96] = "";
+  if (strcmp(askShown, data.ask.q) != 0) {          // a different question than the one on screen
+    if (data.ask.q[0] && prevSt == S_ATTN) { sfx(SFX_ATTENTION); lastChime = millis(); }   // a second one while already asking
+    strlcpy(askShown, data.ask.q, sizeof askShown);
+  }
+  if (data.ask.q[0] && !data.prompt.id[0] && page == PG_NONE && millis() - lastChime > 30000) { sfx(SFX_REMIND); lastChime = millis(); }   // still waiting: remind
   if (data.prompt.id[0] && strcmp(data.prompt.id, answeredId) != 0 && page == PG_NONE && promptShownMs && millis() - max(lastChime, promptShownMs) > 30000) { sfx(SFX_REMIND); lastChime = millis(); }
   // Claude finished (working or asking -> idle): a short tone, so you know it's your turn.
   // Coming online (offline -> idle) isn't a session finishing, so it stays quiet.
